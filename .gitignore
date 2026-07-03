@@ -23,3 +23,17 @@ final_*.py
 emergency_fix.py
 simulate_calc.py
 print_app.py
+excel/
+reports/
+*.xlsx
+*.bak
+*.bak2
+debug*.py
+diagnose*.py
+emergency_fix.py
+full_portal_audit.py
+print_app.py
+simulate_calc.py
+*.db
+*.sqlite
+*.sqlite3
