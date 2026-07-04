@@ -44,126 +44,37 @@ TALLY_SECTION = {
 def show_reports(user):
     conn = get_conn()
 
-    # ── SIDEBAR — Company + Date Range ────────────────────
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("##### 🏢 Company")
+    # ── Read from shared sidebar filter (set by app.py) ──────
+    company_id   = st.session_state.get('global_company_id')
+    company_name = st.session_state.get('global_company_name', '')
+    from_lbl     = st.session_state.get('global_from_lbl')
+    to_lbl       = st.session_state.get('global_to_lbl')
+    from_yr      = st.session_state.get('global_from_yr')
+    from_mo      = st.session_state.get('global_from_mo')
+    to_yr        = st.session_state.get('global_to_yr')
+    to_mo        = st.session_state.get('global_to_mo')
 
-        if is_admin(user):
-            all_cos = conn.execute(
-                "SELECT id, display_name FROM companies WHERE is_active=1 ORDER BY display_name"
-            ).fetchall()
-            if not all_cos:
-                conn.close()
-                st.warning("No companies synced.")
-                return
-            co_map     = {c['display_name']: c['id'] for c in all_cos}
-            selected   = st.selectbox("", list(co_map.keys()),
-                                      label_visibility="collapsed",
-                                      key="rep_company")
-            company_id   = co_map[selected]
-            company_name = selected
-        else:
-            ids = user.get('company_ids', [])
-            if not ids:
-                conn.close()
-                st.error("No company assigned.")
-                return
-            company_id = ids[0]
-            co = conn.execute(
-                "SELECT display_name FROM companies WHERE id=?", (company_id,)
-            ).fetchone()
-            company_name = co['display_name'] if co else ''
-            st.markdown(f"**{company_name}**")
-
-        # Available months
-        avail = conn.execute(
-            "SELECT DISTINCT year, month FROM pl_data "
-            "WHERE company_id=? ORDER BY year, month", (company_id,)
-        ).fetchall()
-
-        if not avail:
-            conn.close()
-            st.info("No data. Please sync first.")
-            return
-
-        mo_opts   = [f"{MONTHS[int(r['month'])-1]}-{str(int(r['year']))[2:]}" for r in avail]
-        yr_mo_map = {f"{MONTHS[int(r['month'])-1]}-{str(int(r['year']))[2:]}":
-                     (int(r['year']), int(r['month'])) for r in avail}
-        today = date.today()
-        ck    = f"rep_{company_id}"
-
-        if f"{ck}_from" not in st.session_state:
-            st.session_state[f"{ck}_from"] = mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
-            st.session_state[f"{ck}_to"]   = mo_opts[-1]
-            st.session_state[f"{ck}_quick"]= ""
-
-        st.markdown("##### 📅 Date Range")
-
-        QS = ["", "Last 3 Months", "Last 6 Months", "Last 12 Months", "Current FY", "Last FY"]
-        quick = st.selectbox("⚡ Quick Select", QS,
-                             index=QS.index(st.session_state[f"{ck}_quick"]),
-                             key=f"{ck}_qs")
-
-        if quick != st.session_state[f"{ck}_quick"]:
-            st.session_state[f"{ck}_quick"] = quick
-            n = len(mo_opts)
-            if   quick == "Last 3 Months":  st.session_state[f"{ck}_from"] = mo_opts[max(0,n-3)]
-            elif quick == "Last 6 Months":  st.session_state[f"{ck}_from"] = mo_opts[max(0,n-6)]
-            elif quick == "Last 12 Months": st.session_state[f"{ck}_from"] = mo_opts[max(0,n-12)]
-            elif quick == "Current FY":
-                fy = today.year if today.month >= 4 else today.year - 1
-                sf = f"Apr-{str(fy)[2:]}"
-                st.session_state[f"{ck}_from"] = sf if sf in mo_opts else mo_opts[0]
-                st.session_state[f"{ck}_to"]   = mo_opts[-1]
-            elif quick == "Last FY":
-                fy = (today.year-1) if today.month >= 4 else (today.year-2)
-                sf = f"Apr-{str(fy)[2:]}"; se = f"Mar-{str(fy+1)[2:]}"
-                st.session_state[f"{ck}_from"] = sf if sf in mo_opts else mo_opts[0]
-                st.session_state[f"{ck}_to"]   = se if se in mo_opts else mo_opts[-1]
-            if quick not in ("Last FY",""):
-                st.session_state[f"{ck}_to"] = mo_opts[-1]
-            st.rerun()
-
-        for k in ('_from','_to'):
-            if st.session_state[f"{ck}{k}"] not in mo_opts:
-                st.session_state[f"{ck}{k}"] = mo_opts[0 if k=='_from' else -1]
-
-        from_lbl = st.selectbox("📅 From", mo_opts,
-                                index=mo_opts.index(st.session_state[f"{ck}_from"]),
-                                key=f"{ck}_fs")
-        to_lbl   = st.selectbox("📅 To", mo_opts,
-                                index=mo_opts.index(st.session_state[f"{ck}_to"]),
-                                key=f"{ck}_ts")
-
-        if st.button("🔄 Clear", use_container_width=True):
-            for k in [f"{ck}_from", f"{ck}_to", f"{ck}_quick",
-                      f"{ck}_qs",   f"{ck}_fs",  f"{ck}_ts"]:
-                if k in st.session_state:
-                    del st.session_state[k]
-            # Reinitialize defaults
-            st.session_state[f"{ck}_from"]  = mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
-            st.session_state[f"{ck}_to"]    = mo_opts[-1]
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-
-        if from_lbl != st.session_state[f"{ck}_from"]:
-            st.session_state[f"{ck}_from"]  = from_lbl
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-        if to_lbl != st.session_state[f"{ck}_to"]:
-            st.session_state[f"{ck}_to"]    = to_lbl
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-
-    from_yr, from_mo = yr_mo_map[from_lbl]
-    to_yr,   to_mo   = yr_mo_map[to_lbl]
+    if not company_id or not from_lbl:
+        conn.close()
+        st.info("Select a company and date range from the sidebar to view reports.")
+        return
 
     if (from_yr, from_mo) > (to_yr, to_mo):
+        conn.close()
         st.error("'From' cannot be after 'To'.")
-        conn.close(); return
+        return
 
     # Selected months list
+    avail = conn.execute(
+        "SELECT DISTINCT year, month FROM pl_data "
+        "WHERE company_id=? ORDER BY year, month", (company_id,)
+    ).fetchall()
+
+    if not avail:
+        conn.close()
+        st.info("No data synced yet. Please sync from Tally first.")
+        return
+
     sel_months = [
         (int(r['year']), int(r['month']))
         for r in avail

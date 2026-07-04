@@ -162,6 +162,21 @@ def init_db():
         updated_at   TEXT    DEFAULT (datetime('now'))
     )""")
 
+    # ── AGEING DATA (Bills Receivable / Payable from Tally) ──
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS ageing_data (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        company_id   INTEGER NOT NULL REFERENCES companies(id),
+        party_type   TEXT    NOT NULL,
+        party_name   TEXT    NOT NULL,
+        bill_ref     TEXT,
+        bill_date    TEXT,
+        due_date     TEXT,
+        amount       REAL    DEFAULT 0,
+        days_overdue INTEGER DEFAULT 0,
+        synced_at    TEXT
+    )""")
+
     # ── OUTSTANDING ────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS outstanding (
@@ -215,6 +230,7 @@ def init_db():
     cur.execute("CREATE INDEX IF NOT EXISTS idx_vouchers_state   ON vouchers(company_id, party_state)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_stock_company    ON stock_movement(company_id, year, month)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_outstanding_co   ON outstanding(company_id, party_type)")
+    cur.execute("CREATE INDEX IF NOT EXISTS idx_ageing_company   ON ageing_data(company_id, party_type)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_ucmap_user       ON user_company_map(user_id)")
 
     conn.commit()

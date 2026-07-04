@@ -209,130 +209,31 @@ def _monthly(rows):
 def show_dashboard(user):
     conn = get_conn()
 
-    # ── SIDEBAR — Company + Date Range (renders ABOVE Navigation) ──
-    with st.sidebar:
-        st.markdown("---")
-        st.markdown("##### 🏢 Company")
+    # ── Read from shared sidebar filter (set by app.py) ──────
+    company_id   = st.session_state.get('global_company_id')
+    company_name = st.session_state.get('global_company_name', '')
+    from_lbl     = st.session_state.get('global_from_lbl')
+    to_lbl       = st.session_state.get('global_to_lbl')
+    from_yr      = st.session_state.get('global_from_yr')
+    from_mo      = st.session_state.get('global_from_mo')
+    to_yr        = st.session_state.get('global_to_yr')
+    to_mo        = st.session_state.get('global_to_mo')
 
-        if is_admin(user):
-            all_cos = conn.execute(
-                "SELECT id, display_name FROM companies "
-                "WHERE is_active=1 ORDER BY display_name"
-            ).fetchall()
-            if not all_cos:
-                conn.close()
-                st.warning("No companies synced.")
-                return
-            co_map     = {c['display_name']: c['id'] for c in all_cos}
-            selected   = st.selectbox("", list(co_map.keys()),
-                                      label_visibility="collapsed")
-            company_id   = co_map[selected]
-            company_name = selected
-        else:
-            ids = user.get('company_ids', [])
-            if not ids:
-                conn.close()
-                st.error("No company assigned.")
-                return
-            company_id = ids[0]
-            co = conn.execute(
-                "SELECT display_name FROM companies WHERE id=?", (company_id,)
-            ).fetchone()
-            company_name = co['display_name'] if co else ''
-            st.markdown(f"**{company_name}**")
+    if not company_id or not from_lbl:
+        conn.close()
+        st.info("Select a company and date range from the sidebar to view the dashboard.")
+        return
 
-        # ── Available months ───────────────────────────────
-        avail = conn.execute(
-            "SELECT DISTINCT year, month FROM pl_data "
-            "WHERE company_id=? ORDER BY year, month", (company_id,)
-        ).fetchall()
+    # Available months for n_months count
+    avail = conn.execute(
+        "SELECT DISTINCT year, month FROM pl_data "
+        "WHERE company_id=? ORDER BY year, month", (company_id,)
+    ).fetchall()
 
-        if not avail:
-            conn.close()
-            st.info("No data. Please sync first.")
-            return
-
-        mo_opts   = [f"{MONTHS[int(r['month'])-1]}-{str(int(r['year']))[2:]}"
-                     for r in avail]
-        yr_mo_map = {f"{MONTHS[int(r['month'])-1]}-{str(int(r['year']))[2:]}":
-                     (int(r['year']), int(r['month'])) for r in avail}
-        today = date.today()
-        ck    = f"dash_{company_id}"
-
-        # Init session state — runs on first load OR after Clear
-        if f"{ck}_from" not in st.session_state:
-            st.session_state[f"{ck}_from"]  = ""   # blank = no selection
-            st.session_state[f"{ck}_to"]    = ""   # blank = no selection
-            st.session_state[f"{ck}_quick"] = ""
-
-        st.markdown("##### 📅 Date Range")
-
-        # Quick Select
-        QS = ["", "Last 3 Months", "Last 6 Months",
-              "Last 12 Months", "Current FY", "Last FY"]
-        quick = st.selectbox("⚡ Quick Select", QS,
-                             index=QS.index(st.session_state[f"{ck}_quick"]),
-                             key=f"{ck}_qs")
-
-        if quick != st.session_state[f"{ck}_quick"]:
-            st.session_state[f"{ck}_quick"] = quick
-            n = len(mo_opts)
-            if   quick == "Last 3 Months":  st.session_state[f"{ck}_from"] = mo_opts[max(0,n-3)]
-            elif quick == "Last 6 Months":  st.session_state[f"{ck}_from"] = mo_opts[max(0,n-6)]
-            elif quick == "Last 12 Months": st.session_state[f"{ck}_from"] = mo_opts[max(0,n-12)]
-            elif quick == "Current FY":
-                fy = today.year if today.month >= 4 else today.year - 1
-                sf = f"Apr-{str(fy)[2:]}"
-                st.session_state[f"{ck}_from"] = sf if sf in mo_opts else mo_opts[0]
-            elif quick == "Last FY":
-                fy = (today.year-1) if today.month >= 4 else (today.year-2)
-                sf = f"Apr-{str(fy)[2:]}"; st_ = f"Mar-{str(fy+1)[2:]}"
-                st.session_state[f"{ck}_from"] = sf  if sf  in mo_opts else mo_opts[0]
-                st.session_state[f"{ck}_to"]   = st_ if st_ in mo_opts else mo_opts[-1]
-            if quick not in ("Last FY", ""):
-                st.session_state[f"{ck}_to"] = mo_opts[-1]
-            st.rerun()
-
-        # Resolve blank state → defaults (last 12 months)
-        if not st.session_state[f"{ck}_from"] or st.session_state[f"{ck}_from"] not in mo_opts:
-            st.session_state[f"{ck}_from"] = mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
-        if not st.session_state[f"{ck}_to"] or st.session_state[f"{ck}_to"] not in mo_opts:
-            st.session_state[f"{ck}_to"] = mo_opts[-1]
-
-        # From / To dropdowns
-        from_lbl = st.selectbox("📅 From", mo_opts,
-                                index=mo_opts.index(st.session_state[f"{ck}_from"]),
-                                key=f"{ck}_fs")
-        to_lbl   = st.selectbox("📅 To", mo_opts,
-                                index=mo_opts.index(st.session_state[f"{ck}_to"]),
-                                key=f"{ck}_ts")
-
-        # Clear button
-        if st.button("🔄 Clear", use_container_width=True):
-            for key in [f"{ck}_from", f"{ck}_to", f"{ck}_quick",
-                        f"{ck}_qs", f"{ck}_fs", f"{ck}_ts"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # Reinitialize defaults
-            st.session_state[f"{ck}_from"]  = mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
-            st.session_state[f"{ck}_to"]    = mo_opts[-1]
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-
-        if from_lbl != st.session_state[f"{ck}_from"]:
-            st.session_state[f"{ck}_from"]  = from_lbl
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-        if to_lbl != st.session_state[f"{ck}_to"]:
-            st.session_state[f"{ck}_to"]    = to_lbl
-            st.session_state[f"{ck}_quick"] = ""
-            st.rerun()
-
-    from_yr, from_mo = yr_mo_map[from_lbl]
-    to_yr,   to_mo   = yr_mo_map[to_lbl]
-    if (from_yr, from_mo) > (to_yr, to_mo):
-        st.error("'From' cannot be after 'To'.")
-        conn.close(); return
+    if not avail:
+        conn.close()
+        st.info("No data synced yet. Please sync from Tally first.")
+        return
 
     n_months = sum(1 for r in avail
                    if (int(r['year']), int(r['month'])) >= (from_yr, from_mo)
@@ -450,21 +351,25 @@ def show_dashboard(user):
                 x=lbs, y=rev_vals, name='Revenue',
                 marker=dict(
                     color=bar_colors,
-                    line=dict(color='rgba(11,15,26,0.25)', width=1),
+                    line=dict(color='rgba(255,255,255,0.08)', width=1),
+                    opacity=0.88,
                 ),
             ))
-            # Beveled top-edge highlight caps for subtle 3D depth
+            # Highlight cap line
             fig.add_trace(go.Scatter(
                 x=lbs, y=rev_vals, mode='markers', name='',
-                marker=dict(symbol='line-ew', size=18, line=dict(width=3, color='rgba(255,255,255,0.6)')),
+                marker=dict(symbol='line-ew', size=18,
+                            line=dict(width=3, color='rgba(255,255,255,0.4)')),
                 showlegend=False, hoverinfo='skip',
             ))
             fig.add_trace(go.Scatter(x=lbs, y=[m['gp'] for m in monthly],
                 name='Gross Profit', mode='lines+markers',
-                line=dict(color=CHART_COLORS['blue'],width=2.5), marker=dict(size=5)))
+                line=dict(color=CHART_COLORS['emerald'], width=2.5),
+                marker=dict(size=5, color=CHART_COLORS['emerald'])))
             fig.add_trace(go.Scatter(x=lbs, y=[m['np'] for m in monthly],
                 name='Net Profit', mode='lines+markers',
-                line=dict(color=CHART_COLORS['violet'],width=2.5,dash='dot'), marker=dict(size=5)))
+                line=dict(color=CHART_COLORS['sky'], width=2.5, dash='dot'),
+                marker=dict(size=5, color=CHART_COLORS['sky'])))
             chart_layout(fig, height=300,
                         legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                     font=dict(color=CHART_COLORS['text'], size=10)))
@@ -590,15 +495,20 @@ def show_dashboard(user):
             insights.append(('success','✅','Capex Deployed',
                              f'Fixed assets {fmt(fa_total)}'))
 
-    cm = {'success':('#D4EDDA','#155724','#C3E6CB'),
-          'warning':('#FFF3CD','#856404','#FFEEBA'),
-          'error':  ('#F8D7DA','#721C24','#F5C6CB'),
-          'info':   ('#D1ECF1','#0C5460','#BEE5EB')}
+    cm = {
+        'success': ('rgba(16,185,129,0.12)', '#6ee7b7', 'rgba(16,185,129,0.6)'),
+        'warning': ('rgba(251,191,36,0.10)',  '#fde68a', 'rgba(251,191,36,0.5)'),
+        'error':   ('rgba(244,63,94,0.12)',   '#fda4af', 'rgba(244,63,94,0.5)'),
+        'info':    ('rgba(99,102,241,0.12)',   '#a5b4fc', 'rgba(99,102,241,0.5)'),
+    }
     for itype, icon, title, detail in insights:
-        bg,fg,bd = cm.get(itype, cm['info'])
+        bg, fg, bd = cm.get(itype, cm['info'])
         st.markdown(f"""
-            <div style="background:{bg};color:{fg};border-left:5px solid {bd};
-                padding:0.75rem 1rem;border-radius:6px;margin-bottom:0.5rem;">
-                <strong>{icon} {title}</strong><br>
-                <span style="font-size:0.9rem;">{detail}</span>
+            <div style="background:{bg};color:{fg};border-left:3px solid {bd};
+                border: 1px solid {bd.replace('0.5','0.2').replace('0.6','0.2')};
+                border-left: 3px solid {bd};
+                padding:0.75rem 1rem;border-radius:12px;margin-bottom:0.5rem;
+                backdrop-filter:blur(10px);">
+                <strong style="color:{fg}">{icon} {title}</strong><br>
+                <span style="font-size:0.88rem;color:{fg};opacity:0.8">{detail}</span>
             </div>""", unsafe_allow_html=True)

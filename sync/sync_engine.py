@@ -178,6 +178,7 @@ def _sync_company(company_id, company_name, last_sync, conn) -> int:
     records  = 0
     records += _sync_pl_monthly(company_id, company_name, start, now, conn)
     records += _sync_bs_monthly(company_id, company_name, start, now, conn)
+    records += _sync_ageing_company(company_id, company_name, conn)
     return records
 
 def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
@@ -260,6 +261,117 @@ def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
 
         cur = nxt
     return records
+
+
+# ── AGEING SYNC (Bills Receivable / Bills Payable) ─────────────────────────
+
+def _parse_tally_date(d: str):
+    """Parse Tally date strings like '1-Apr-25' or '01-04-2025'"""
+    if not d:
+        return None
+    for fmt in ('%d-%b-%y', '%d-%b-%Y', '%d-%m-%Y', '%Y%m%d'):
+        try:
+            return datetime.strptime(d.strip(), fmt).strftime('%Y-%m-%d')
+        except Exception:
+            continue
+    return None
+
+
+def _fetch_ageing_xml(report_name: str, company_name: str) -> str:
+    """Fetch Bills Receivable or Bills Payable XML from Tally"""
+    xml_req = f"""<ENVELOPE>
+<HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
+<BODY><EXPORTDATA><REQUESTDESC>
+<REPORTNAME>{report_name}</REPORTNAME>
+<STATICVARIABLES>
+<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>
+<SVCURRENTCOMPANY>{company_name}</SVCURRENTCOMPANY>
+</STATICVARIABLES>
+</REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>"""
+    resp = requests.post(TALLY_URL,
+                         data=xml_req.encode('utf-8'),
+                         headers={'Content-Type': 'application/xml'},
+                         timeout=30)
+    return resp.text
+
+
+def _parse_bills(xml_text: str) -> list:
+    """Parse BILLFIXED blocks from Tally ageing XML response"""
+    bills = []
+    blocks = xml_text.split('<BILLFIXED>')
+    for block in blocks[1:]:
+        try:
+            date    = re.search(r'<BILLDATE>(.*?)</BILLDATE>', block)
+            ref     = re.search(r'<BILLREF>(.*?)</BILLREF>', block)
+            party   = re.search(r'<BILLPARTY>(.*?)</BILLPARTY>', block)
+            after   = block.split('</BILLFIXED>')[-1] if '</BILLFIXED>' in block else block
+            amt     = re.search(r'<BILLCL>(.*?)</BILLCL>', after)
+            due     = re.search(r'<BILLDUE>(.*?)</BILLDUE>', after)
+            overdue = re.search(r'<BILLOVERDUE>(.*?)</BILLOVERDUE>', after)
+
+            if not (date and party and amt):
+                continue
+            amount = float(amt.group(1).strip()) if amt else 0
+            if abs(amount) < 1:
+                continue
+
+            bills.append({
+                'party_name':   party.group(1).strip() if party else '',
+                'bill_ref':     ref.group(1).strip() if ref else '',
+                'bill_date':    _parse_tally_date(date.group(1).strip()) if date else None,
+                'due_date':     _parse_tally_date(due.group(1).strip()) if due else None,
+                'amount':       abs(amount),
+                'days_overdue': int(overdue.group(1).strip()) if overdue else 0,
+            })
+        except Exception:
+            continue
+    return bills
+
+
+def _sync_ageing_company(company_id: int, company_name: str, conn) -> int:
+    """
+    Sync Bills Receivable (customer) and Bills Payable (vendor) ageing
+    data from Tally for the given company.
+    Returns total number of bill records inserted.
+    """
+    synced_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    total     = 0
+
+    for party_type, report_name in [
+        ('customer', 'Bills Receivable'),
+        ('vendor',   'Bills Payable'),
+    ]:
+        try:
+            xml_text = _fetch_ageing_xml(report_name, company_name)
+            if 'LINEERROR' in xml_text:
+                print(f"[Ageing] {report_name} for '{company_name}': Tally error in response")
+                continue
+
+            bills = _parse_bills(xml_text)
+            print(f"[Ageing] {company_name} | {party_type}: {len(bills)} bills")
+
+            # Clear old data then insert fresh
+            conn.execute(
+                "DELETE FROM ageing_data WHERE company_id=? AND party_type=?",
+                (company_id, party_type)
+            )
+            for b in bills:
+                conn.execute("""
+                    INSERT INTO ageing_data
+                        (company_id, party_type, party_name, bill_ref,
+                         bill_date, due_date, amount, days_overdue, synced_at)
+                    VALUES (?,?,?,?,?,?,?,?,?)
+                """, (company_id, party_type, b['party_name'], b['bill_ref'],
+                      b['bill_date'], b['due_date'], b['amount'],
+                      b['days_overdue'], synced_at))
+            conn.commit()
+            total += len(bills)
+
+        except Exception as e:
+            print(f"[Ageing] Error syncing {report_name} for '{company_name}': {e}")
+
+    return total
+
 
 # ── FIXED XML PARSER ───────────────────────────────────────
 def parse_pl_xml(xml_text: str) -> list:
