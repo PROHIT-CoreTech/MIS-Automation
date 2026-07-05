@@ -13,51 +13,17 @@ Tally P&L Structure:
 """
 import streamlit as st
 from datetime import date
-from core.db import get_conn
-from core.auth import is_admin
-from core.theme import chart_layout, donut_chart_figure, CHART_COLORS, CHART_PALETTE
+from core.db        import get_conn
+from core.auth      import is_admin
+from core.theme     import chart_layout, donut_chart_figure, CHART_COLORS, CHART_PALETTE
+from core.constants import MONTHS, TALLY_MAP, COGS_NAMES, PL_HEADERS
 
-MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
-          'Jul','Aug','Sep','Oct','Nov','Dec']
-
-# ── PURE TALLY GROUP CLASSIFICATION ───────────────────────
-# Maps tally_group (lowercase) → P&L bucket
-TALLY_MAP = {
-    # Trading Account — Direct Income (Credit side, part of GP)
-    'direct incomes':         'dir_inc',
-    # Trading Account — COGS pre-calculated net (use if present)
-    'cost of sales :':        'cos_net',
-    # Trading Account — COGS individual groups (used if cos_net absent)
-    'opening stock':          'opening',
-    'purchase accounts':      'purchases',
-    'add: purchase accounts': 'purchases',
-    'direct expenses':        'direct_exp',
-    'less: closing stock':    'closing',
-    'closing stock':          'closing',
-    # P&L Account — Indirect Income (below GP)
-    'indirect incomes':       'ind_inc',
-    # P&L Account — Overhead (below GP)
-    'indirect expenses':      'overhead',
-    'salaries and bonus':     'overhead',
-    'salary accounts':        'overhead',
-}
-
-# Known COGS/Trading group names — used to detect parser-bug rows
-# e.g. 'Direct Expenses | Indirect Expenses' = sub-group total stored incorrectly
-_COGS_NAMES = {
-    'direct expenses', 'opening stock', 'purchase accounts',
-    'direct incomes',  'cost of sales :'
-}
-
-def _is_skip(tg_l, mg_l):
+def _is_skip(tg_l: str, mg_l: str) -> bool:
     """
-    Skip only true Tally section header rows and group total rows.
+    Skip true Tally section header rows and group total rows.
+    Uses PL_HEADERS from core.constants.
     """
-    _HEADERS = {
-        'trading account:', 'profit & loss a/c', 'gross profit :',
-        'gross profit c/o', 'gross profit b/f', 'nett profit', 'net profit'
-    }
-    if tg_l in _HEADERS or mg_l in _HEADERS:
+    if tg_l in PL_HEADERS or mg_l in PL_HEADERS:
         return True
     # Skip group total rows (tagged by fix_group_total.py)
     if mg_l == '_group_total_':

@@ -3,39 +3,12 @@ Downloads Page — Excel & PowerPoint MIS Report Export
 Generates formatted reports from the live database and offers download buttons.
 """
 import io
-import sqlite3
 import streamlit as st
 import pandas as pd
 from datetime import date, datetime
-from core.auth import can_download_excel, can_download_ppt, is_admin
-
-MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-DB_PATH = "data/mis_portal.db"
-
-# ── Tally section mapping (mirrors reports.py) ─────────────
-TALLY_SECTION = {
-    'sales accounts':         'revenue',
-    'direct incomes':         'dir_inc',
-    'opening stock':          'opening',
-    'purchase accounts':      'purchases',
-    'add: purchase accounts': 'purchases',
-    'direct expenses':        'direct_exp',
-    'less: closing stock':    'closing',
-    'closing stock':          'closing',
-    'cost of sales :':        'cos_net',
-    'indirect incomes':       'ind_inc',
-    'indirect expenses':      'overhead',
-    'salaries and bonus':     'overhead',
-    'salary accounts':        'overhead',
-}
-
-
-def _get_conn():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+from core.auth      import can_download_excel, can_download_ppt, is_admin
+from core.db        import get_conn as _get_conn
+from core.constants import MONTHS, TALLY_SECTION
 
 
 def _load_pl_data(company_id: int, from_yr: int, from_mo: int,

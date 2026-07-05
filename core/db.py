@@ -1,28 +1,34 @@
 """
 Database layer — SQLite (Phase 1)
-Phase 2: swap connection string to PostgreSQL, rest stays same
+Phase 2: swap connection string to PostgreSQL, rest stays the same.
+
+DB_PATH and related config are now sourced from core.config.
 """
 import sqlite3
-import os
+import logging
+from core.config import DB_PATH
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'mis_portal.db')
+log = logging.getLogger(__name__)
 
-# Auto-create data folder if not exists
-os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-def get_conn():
+def get_conn() -> sqlite3.Connection:
+    """Open and return a WAL-mode SQLite connection."""
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
-def init_db():
-    """Create all tables if not exist"""
+
+def init_db() -> None:
+    """Create all tables and indexes if they do not already exist."""
+    import os
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+
     conn = get_conn()
     cur  = conn.cursor()
 
-    # ── COMPANIES ──────────────────────────────────────────
+    # ── COMPANIES ──────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS companies (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,7 +43,7 @@ def init_db():
         created_at    TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── USERS ──────────────────────────────────────────────
+    # ── USERS ──────────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -54,7 +60,7 @@ def init_db():
         created_by      INTEGER
     )""")
 
-    # ── USER ↔ COMPANY MAP (RLS) ───────────────────────────
+    # ── USER ↔ COMPANY MAP (RLS) ───────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS user_company_map (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -63,7 +69,7 @@ def init_db():
         UNIQUE(user_id, company_id)
     )""")
 
-    # ── P&L DATA ───────────────────────────────────────────
+    # ── P&L DATA ───────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS pl_data (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -81,7 +87,7 @@ def init_db():
         UNIQUE(company_id, ledger_name, year, month)
     )""")
 
-    # ── BS DATA ────────────────────────────────────────────
+    # ── BS DATA ────────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS bs_data (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,7 +103,7 @@ def init_db():
         UNIQUE(company_id, ledger_name, year, month)
     )""")
 
-    # ── VOUCHERS (Sales/Purchase — Brand, State, Item) ─────
+    # ── VOUCHERS (Sales/Purchase — Brand, State, Item) ─────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS vouchers (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -119,7 +125,7 @@ def init_db():
         updated_at      TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── STOCK MOVEMENT (monthly) ───────────────────────────
+    # ── STOCK MOVEMENT (monthly) ────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS stock_movement (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -141,7 +147,7 @@ def init_db():
         UNIQUE(company_id, item_name, year, month)
     )""")
 
-    # ── STOCK AGEING ───────────────────────────────────────
+    # ── STOCK AGEING ───────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS stock_ageing (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,7 +168,7 @@ def init_db():
         updated_at   TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── AGEING DATA (Bills Receivable / Payable from Tally) ──
+    # ── AGEING DATA (Bills Receivable / Payable from Tally) ─────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS ageing_data (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,7 +183,7 @@ def init_db():
         synced_at    TEXT
     )""")
 
-    # ── OUTSTANDING ────────────────────────────────────────
+    # ── OUTSTANDING ─────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS outstanding (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,7 +200,7 @@ def init_db():
         updated_at      TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── CUSTOM REPORTS ─────────────────────────────────────
+    # ── CUSTOM REPORTS ──────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS custom_reports (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -209,7 +215,7 @@ def init_db():
         created_at  TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── SYNC LOG ───────────────────────────────────────────
+    # ── SYNC LOG ────────────────────────────────────────────────
     cur.execute("""
     CREATE TABLE IF NOT EXISTS sync_log (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -222,7 +228,7 @@ def init_db():
         ended_at    TEXT
     )""")
 
-    # ── INDEXES for performance ────────────────────────────
+    # ── INDEXES for performance ─────────────────────────────────
     cur.execute("CREATE INDEX IF NOT EXISTS idx_pl_company_month ON pl_data(company_id, year, month)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_bs_company_month ON bs_data(company_id, year, month)")
     cur.execute("CREATE INDEX IF NOT EXISTS idx_vouchers_company ON vouchers(company_id, year, month)")
@@ -235,13 +241,14 @@ def init_db():
 
     conn.commit()
     conn.close()
-    print("DB initialized successfully")
+    log.info("DB initialized successfully")
 
-# ── RLS HELPER ─────────────────────────────────────────────
+
+# ── RLS HELPER ──────────────────────────────────────────────────
 def get_company_ids_for_user(user_id: int, role: str) -> list:
     """
-    Admin → all active company ids
-    Client → only assigned company ids
+    Admin → all active company ids.
+    Client → only assigned company ids.
     """
     conn = get_conn()
     if role == 'admin':
@@ -257,9 +264,27 @@ def get_company_ids_for_user(user_id: int, role: str) -> list:
     conn.close()
     return [r['id'] for r in rows]
 
+
+def get_available_months(company_id: int) -> list:
+    """
+    Return sorted list of (year, month) tuples available in pl_data
+    for the given company. Used by the sidebar filter in app.py.
+    """
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT DISTINCT year, month FROM pl_data "
+        "WHERE company_id=? ORDER BY year, month",
+        (company_id,)
+    ).fetchall()
+    conn.close()
+    return [(int(r['year']), int(r['month'])) for r in rows]
+
+
 def company_ids_placeholder(ids: list) -> str:
-    """Helper for SQL IN clause"""
+    """Helper for SQL IN clause: returns comma-separated '?' placeholders."""
     return ','.join('?' * len(ids))
 
+
 if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO)
     init_db()

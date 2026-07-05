@@ -4,12 +4,11 @@ Masters.xlsx Loader
 - Col A = Ledger Name, Col B = Tally Group, Col C = MIS Group
 - Fallback to Tally native group if ledger not in Masters
 """
-import os
+import logging
 import openpyxl
+from core.config import MASTERS_PATH
 
-MASTERS_PATH = os.path.join(
-    os.path.dirname(__file__), '..', 'config', 'masters', 'Masters.xlsx'
-)
+log = logging.getLogger(__name__)
 
 _cache: dict = {}   # in-memory cache
 
@@ -22,7 +21,7 @@ def load_masters(force_reload=False) -> dict:
         return _cache
 
     if not os.path.exists(MASTERS_PATH):
-        print(f"[Masters] File not found: {MASTERS_PATH}")
+        log.warning("[Masters] File not found: %s", MASTERS_PATH)
         return {}
 
     wb  = openpyxl.load_workbook(MASTERS_PATH, data_only=True)
@@ -47,7 +46,7 @@ def load_masters(force_reload=False) -> dict:
         }
 
     _cache = mapping
-    print(f"[Masters] Loaded {len(mapping)} ledger mappings")
+    log.info("[Masters] Loaded %d ledger mappings", len(mapping))
     return mapping
 
 def get_mis_group(ledger_name: str, tally_native_group: str = '') -> tuple[str, str]:

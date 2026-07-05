@@ -1,6 +1,6 @@
 """Admin Panel — Client management, permissions, impersonation"""
 import streamlit as st
-from core.db   import get_conn
+from core.db   import get_conn, get_company_ids_for_user
 from core.auth import (create_client, get_all_clients, toggle_client_active,
                         reset_client_password, update_client_permissions,
                         update_client_companies, get_user_by_id)
@@ -27,7 +27,6 @@ def show_admin(admin_user):
                         if st.button("👁 View as Client", key=f"imp_{c['id']}"):
                             full = get_user_by_id(c['id'])
                             if full:
-                                from core.db import get_company_ids_for_user
                                 full_dict = dict(full)
                                 full_dict['company_ids'] = get_company_ids_for_user(c['id'], 'client')
                                 st.session_state.impersonating = full_dict

@@ -6,9 +6,7 @@ Company detection: TDL MyField approach
 import requests
 import re
 from datetime import datetime
-
-TALLY_URL    = "http://localhost:9000"
-TALLY_TIMEOUT = 30
+from core.config import TALLY_URL, TALLY_TIMEOUT
 
 def test_connection() -> dict:
     try:

@@ -1,27 +1,15 @@
 """
-core/theme.py — "Convix Dark" premium design system for MIS Portal
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Deep navy dark theme with glassmorphism, gradient accents, glowing
-KPI cards, animated sidebar nav pills, and premium Inter typography.
+core/theme/styles.py — CSS injection functions for MIS Portal.
 
-Design tokens:
-  --bg-base    : #080c16   deep space navy (canvas)
-  --bg-surface : #0f1629   slightly lighter (panels)
-  --glass      : rgba(15,22,41,0.7) + blur — glassmorphism cards
-  --border     : rgba(255,255,255,0.07)
-  --accent     : #6366f1   indigo (primary)
-  --orange     : #f97316   amber-orange (highlights)
-  --emerald    : #10b981   profit green
-  --rose       : #f43f5e   loss red
-  --text-hi    : #f1f5f9   near-white
-  --text-mid   : #94a3b8   slate-400
-  --text-lo    : #475569   slate-600
+Extracted from the monolithic core/theme.py (717 lines).
+Contains: inject_theme(), inject_sidebar_toggle(), inject_tilt_js()
 """
 import streamlit as st
 import streamlit.components.v1 as components
 
 
-def inject_theme():
+def inject_theme() -> None:
+    """Inject the full 'Convix Dark' CSS design system into the Streamlit app."""
     st.markdown("""
     <style>
     /* ── FONTS ─────────────────────────────────────────────── */
@@ -382,7 +370,6 @@ def inject_theme():
     }
 
     /* ── TABS ──────────────────────────────────────────────── */
-    /* Remove the congested pill-container box entirely */
     .stTabs [data-baseweb="tab-list"] {
         gap: 0 !important;
         background: transparent !important;
@@ -406,7 +393,6 @@ def inject_theme():
         transition: color 0.18s ease !important;
         white-space: nowrap !important;
         cursor: pointer !important;
-        /* underline indicator */
         border-bottom: 2px solid transparent !important;
         margin-bottom: -1px !important;
     }
@@ -422,13 +408,8 @@ def inject_theme():
         border-bottom: 2px solid var(--accent) !important;
         box-shadow: none !important;
     }
-    /* Hide the default selection highlight bar Streamlit injects */
-    .stTabs [data-baseweb="tab-highlight"] {
-        display: none !important;
-    }
-    .stTabs [data-baseweb="tab-border"] {
-        display: none !important;
-    }
+    .stTabs [data-baseweb="tab-highlight"] { display: none !important; }
+    .stTabs [data-baseweb="tab-border"]    { display: none !important; }
 
     /* ── DIVIDERS ──────────────────────────────────────────── */
     hr {
@@ -494,36 +475,10 @@ def inject_theme():
     """, unsafe_allow_html=True)
 
 
-def brand_mark(size=28):
-    """Premium gradient brand mark — multi-node radial pattern for MIS Portal."""
-    return f"""
-    <svg width="{size}" height="{size}" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <linearGradient id="bm" x1="0%" y1="0%" x2="100%" y2="100%">
-          <stop offset="0%"   stop-color="#6366f1"/>
-          <stop offset="100%" stop-color="#f97316"/>
-        </linearGradient>
-      </defs>
-      <g fill="url(#bm)">
-        <circle cx="16" cy="16" r="3.8"/>
-        <circle cx="16" cy="5.5"  r="3"/>
-        <circle cx="16" cy="26.5" r="3"/>
-        <circle cx="5.5"  cy="16" r="3"/>
-        <circle cx="26.5" cy="16" r="3"/>
-        <circle cx="9"  cy="9"   r="2.6"/>
-        <circle cx="23" cy="9"   r="2.6"/>
-        <circle cx="9"  cy="23"  r="2.6"/>
-        <circle cx="23" cy="23"  r="2.6"/>
-      </g>
-    </svg>
+def inject_sidebar_toggle() -> None:
     """
-
-
-def inject_sidebar_toggle():
-    """
-    Guaranteed sidebar show/hide control with premium dark styling.
-    Renders a fixed top-left glass button that piggybacks on Streamlit's
-    own toggle logic — independent of testid names across versions.
+    Inject a premium fixed sidebar show/hide button.
+    Works across Streamlit versions by trying multiple selector patterns.
     """
     components.html("""
     <script>
@@ -577,111 +532,8 @@ def inject_sidebar_toggle():
     """, height=0, width=0)
 
 
-# ── DARK PLOTLY CHART TEMPLATE ────────────────────────────────
-CHART_COLORS = {
-    'accent':   '#6366f1',
-    'orange':   '#f97316',
-    'emerald':  '#10b981',
-    'sky':      '#38bdf8',
-    'amber':    '#fbbf24',
-    'rose':     '#f43f5e',
-    'violet':   '#a78bfa',
-    'text':     '#94a3b8',
-    'text_hi':  '#f1f5f9',
-    'grid':     'rgba(255,255,255,0.05)',
-    'mint':     '#6366f1',   # kept for backward-compat alias
-    'blue':     '#38bdf8',   # kept for backward-compat alias
-    'red':      '#f43f5e',   # kept for backward-compat alias
-}
-
-CHART_PALETTE = [
-    '#6366f1', '#f97316', '#10b981', '#38bdf8',
-    '#fbbf24', '#a78bfa', '#f43f5e', '#2dd4bf',
-]
-
-
-def chart_layout(fig, **overrides):
-    """Apply the premium dark layout to any Plotly figure in place."""
-    base = dict(
-        paper_bgcolor='rgba(0,0,0,0)',
-        plot_bgcolor='rgba(0,0,0,0)',
-        font=dict(color=CHART_COLORS['text'], family='Inter, sans-serif', size=11),
-        legend=dict(
-            font=dict(color=CHART_COLORS['text'], size=10),
-            bgcolor='rgba(0,0,0,0)',
-        ),
-        xaxis=dict(
-            showgrid=False,
-            color=CHART_COLORS['text'],
-            linecolor='rgba(255,255,255,0.08)',
-            tickfont=dict(color=CHART_COLORS['text']),
-        ),
-        yaxis=dict(
-            gridcolor=CHART_COLORS['grid'],
-            color=CHART_COLORS['text'],
-            zerolinecolor='rgba(255,255,255,0.08)',
-            tickfont=dict(color=CHART_COLORS['text']),
-        ),
-        hoverlabel=dict(
-            bgcolor='rgba(15,22,41,0.95)',
-            font_color=CHART_COLORS['text_hi'],
-            bordercolor='rgba(99,102,241,0.4)',
-            font=dict(family='Inter, sans-serif'),
-        ),
-        margin=dict(l=12, r=12, t=12, b=12),
-    )
-    base.update(overrides)
-    fig.update_layout(**base)
-    return fig
-
-
-def donut_chart_figure(labels, values, palette=None, center_text=None):
-    """Dark-mode donut chart with inner glow shadow layer."""
-    import plotly.graph_objects as go
-    palette = palette or CHART_PALETTE
-    colors = [palette[i % len(palette)] for i in range(len(labels))]
-
-    fig = go.Figure()
-    # Shadow layer
-    fig.add_trace(go.Pie(
-        labels=labels, values=values, hole=0.6, sort=False,
-        marker=dict(colors=['rgba(99,102,241,0.08)'] * len(labels)),
-        textinfo='none', hoverinfo='skip', showlegend=False,
-        domain=dict(x=[0.015, 1.0], y=[0.0, 0.985]),
-    ))
-    # Main layer
-    fig.add_trace(go.Pie(
-        labels=labels, values=values, hole=0.6, sort=False,
-        marker=dict(
-            colors=colors,
-            line=dict(color='rgba(8,12,22,0.8)', width=2),
-        ),
-        textinfo='percent',
-        textfont=dict(color='#ffffff', size=10, family='Inter'),
-        hovertemplate='%{label}: ₹%{value:,.0f}<extra></extra>',
-        domain=dict(x=[0.0, 0.985], y=[0.015, 1.0]),
-    ))
-
-    total = sum(values) if values else 0
-    if center_text is None:
-        a = abs(total)
-        center_text = (f"₹{a/1e7:.2f}Cr" if a >= 1e7
-                       else f"₹{a/1e5:.1f}L" if a >= 1e5
-                       else f"₹{a:,.0f}")
-
-    chart_layout(fig, showlegend=True,
-                 legend=dict(orientation='v', x=1.0, y=0.5,
-                             font=dict(color=CHART_COLORS['text'], size=10)),
-                 annotations=[dict(
-                     text=center_text, x=0.49, y=0.5, showarrow=False,
-                     font=dict(size=15, color=CHART_COLORS['text_hi'],
-                               family='Inter, sans-serif', weight=700),
-                 )])
-    return fig
-
-
-def inject_tilt_js():
-    """Mouse-tracking 3D tilt for the element with class 'tilt-card'."""
+def inject_tilt_js() -> None:
+    """Mouse-tracking 3-D tilt effect for elements with class 'tilt-card'."""
     components.html("""
     <script>
     (function() {

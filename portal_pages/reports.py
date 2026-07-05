@@ -7,38 +7,7 @@ from datetime import date
 from core.db import get_conn
 from core.auth import is_admin
 from core.theme import chart_layout, CHART_COLORS, CHART_PALETTE
-
-MONTHS = ['Jan','Feb','Mar','Apr','May','Jun',
-          'Jul','Aug','Sep','Oct','Nov','Dec']
-
-# ── Tally P&L section order ────────────────────────────────
-SECTION_ORDER = [
-    ('revenue',   '📈 Sales Accounts (Revenue)'),
-    ('dir_inc',   '➕ Direct Incomes'),
-    ('cogs',      '📦 Cost of Goods Sold'),
-    ('gp',        '💹 Gross Profit'),
-    ('ind_inc',   '💰 Indirect Incomes'),
-    ('overhead',  '💸 Indirect Expenses'),
-    ('np',        '🏆 Net Profit'),
-]
-
-TALLY_SECTION = {
-    'sales accounts':         'revenue',
-    'direct incomes':         'dir_inc',
-    # COGS sub-groups
-    'opening stock':          'opening',
-    'purchase accounts':      'purchases',
-    'add: purchase accounts': 'purchases',
-    'direct expenses':        'direct_exp',
-    'less: closing stock':    'closing',
-    'closing stock':          'closing',
-    'cost of sales :':        'cos_net',
-    # P&L
-    'indirect incomes':       'ind_inc',
-    'indirect expenses':      'overhead',
-    'salaries and bonus':     'overhead',
-    'salary accounts':        'overhead',
-}
+from core.constants import MONTHS, TALLY_SECTION, SECTION_ORDER
 
 
 def show_reports(user):

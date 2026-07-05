@@ -3,26 +3,35 @@ Authentication & Authorization
 - bcrypt password hashing
 - Role-based access (admin / client)
 - Permission checks (excel, ppt)
-- Account lockout after 3 failed attempts
+- Account lockout after N failed attempts
 - Admin impersonation
+
+Lockout configuration is sourced from core.config.
 """
+import logging
 import bcrypt
-import sqlite3
 from datetime import datetime, timedelta
+
+from core.config import MAX_ATTEMPTS, LOCKOUT_MINS, ADMIN_USERNAME, ADMIN_PASSWORD
 from core.db import get_conn, get_company_ids_for_user
 
-MAX_ATTEMPTS  = 3
-LOCKOUT_MINS  = 30
+log = logging.getLogger(__name__)
 
-# ── PASSWORD UTILS ─────────────────────────────────────────
+
+# ── PASSWORD UTILS ─────────────────────────────────────────────
 def hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+
 
 def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
-# ── CREATE ADMIN (first-time setup) ────────────────────────
-def create_admin_if_not_exists(username='admin', password='admin@123'):
+
+# ── CREATE ADMIN (first-time setup) ────────────────────────────
+def create_admin_if_not_exists(
+    username: str = ADMIN_USERNAME,
+    password: str = ADMIN_PASSWORD,
+) -> None:
     conn = get_conn()
     existing = conn.execute(
         "SELECT id FROM users WHERE role='admin'"
@@ -34,14 +43,15 @@ def create_admin_if_not_exists(username='admin', password='admin@123'):
             VALUES (?, ?, 'Administrator', 'admin', 1, 1)
         """, (username, hash_password(password)))
         conn.commit()
-        print(f"Admin created: {username}")
+        log.info("Admin created: %s", username)
     conn.close()
 
-# ── LOGIN ──────────────────────────────────────────────────
+
+# ── LOGIN ──────────────────────────────────────────────────────
 def login(username: str, password: str) -> dict | None:
     """
-    Returns user dict on success, None on failure.
-    Handles lockout logic.
+    Returns user dict on success, None on bad credentials.
+    Raises PermissionError when account is locked.
     """
     conn = get_conn()
     user = conn.execute(
@@ -53,7 +63,7 @@ def login(username: str, password: str) -> dict | None:
         conn.close()
         return None
 
-    # Check lockout — skip for admin
+    # Check lockout — admin is exempt
     if user['locked_until'] and user['role'] != 'admin':
         locked_until = datetime.fromisoformat(user['locked_until'])
         if datetime.now() < locked_until:
@@ -61,6 +71,7 @@ def login(username: str, password: str) -> dict | None:
             mins_left = int((locked_until - datetime.now()).seconds / 60) + 1
             raise PermissionError(f"Account locked. Try again in {mins_left} min.")
         else:
+            # Lock expired — reset counter
             conn.execute(
                 "UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?",
                 (user['id'],)
@@ -69,10 +80,10 @@ def login(username: str, password: str) -> dict | None:
 
     # Verify password
     if not verify_password(password, user['password_hash']):
-        # Admin never gets locked out
         if user['role'] == 'admin':
             conn.close()
             return None
+
         attempts = user['failed_attempts'] + 1
         if attempts >= MAX_ATTEMPTS:
             locked_until = (datetime.now() + timedelta(minutes=LOCKOUT_MINS)).isoformat()
@@ -82,17 +93,19 @@ def login(username: str, password: str) -> dict | None:
             )
             conn.commit()
             conn.close()
-            raise PermissionError(f"Too many attempts. Account locked for {LOCKOUT_MINS} minutes.")
-        else:
-            conn.execute(
-                "UPDATE users SET failed_attempts=? WHERE id=?",
-                (attempts, user['id'])
+            raise PermissionError(
+                f"Too many attempts. Account locked for {LOCKOUT_MINS} minutes."
             )
-            conn.commit()
-            conn.close()
+
+        conn.execute(
+            "UPDATE users SET failed_attempts=? WHERE id=?",
+            (attempts, user['id'])
+        )
+        conn.commit()
+        conn.close()
         return None
 
-    # Success — reset attempts
+    # Success — reset failed attempts
     conn.execute(
         "UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?",
         (user['id'],)
@@ -105,11 +118,17 @@ def login(username: str, password: str) -> dict | None:
     conn.close()
     return user_dict
 
-# ── CLIENT MANAGEMENT (Admin) ──────────────────────────────
-def create_client(username, password, full_name,
-                  company_ids: list,
-                  can_excel=True, can_ppt=False,
-                  created_by=None) -> int:
+
+# ── CLIENT MANAGEMENT (Admin) ──────────────────────────────────
+def create_client(
+    username: str,
+    password: str,
+    full_name: str,
+    company_ids: list,
+    can_excel: bool = True,
+    can_ppt: bool = False,
+    created_by: int | None = None,
+) -> int:
     conn = get_conn()
     cur = conn.cursor()
     cur.execute("""
@@ -129,7 +148,8 @@ def create_client(username, password, full_name,
     conn.close()
     return user_id
 
-def update_client_permissions(user_id: int, can_excel: bool, can_ppt: bool):
+
+def update_client_permissions(user_id: int, can_excel: bool, can_ppt: bool) -> None:
     conn = get_conn()
     conn.execute("""
         UPDATE users SET can_download_excel=?, can_download_ppt=?
@@ -138,7 +158,8 @@ def update_client_permissions(user_id: int, can_excel: bool, can_ppt: bool):
     conn.commit()
     conn.close()
 
-def update_client_companies(user_id: int, company_ids: list):
+
+def update_client_companies(user_id: int, company_ids: list) -> None:
     conn = get_conn()
     conn.execute("DELETE FROM user_company_map WHERE user_id=?", (user_id,))
     for cid in company_ids:
@@ -149,13 +170,15 @@ def update_client_companies(user_id: int, company_ids: list):
     conn.commit()
     conn.close()
 
-def toggle_client_active(user_id: int, active: bool):
+
+def toggle_client_active(user_id: int, active: bool) -> None:
     conn = get_conn()
     conn.execute("UPDATE users SET is_active=? WHERE id=?", (int(active), user_id))
     conn.commit()
     conn.close()
 
-def reset_client_password(user_id: int, new_password: str):
+
+def reset_client_password(user_id: int, new_password: str) -> None:
     conn = get_conn()
     conn.execute(
         "UPDATE users SET password_hash=?, failed_attempts=0, locked_until=NULL WHERE id=?",
@@ -163,6 +186,7 @@ def reset_client_password(user_id: int, new_password: str):
     )
     conn.commit()
     conn.close()
+
 
 def get_all_clients() -> list:
     conn = get_conn()
@@ -182,18 +206,22 @@ def get_all_clients() -> list:
     conn.close()
     return [dict(r) for r in rows]
 
+
 def get_user_by_id(user_id: int) -> dict | None:
     conn = get_conn()
     row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
     conn.close()
     return dict(row) if row else None
 
-# ── PERMISSION CHECKS ──────────────────────────────────────
+
+# ── PERMISSION CHECKS ──────────────────────────────────────────
 def can_download_excel(user: dict) -> bool:
     return bool(user.get('can_download_excel', 0)) or user.get('role') == 'admin'
 
+
 def can_download_ppt(user: dict) -> bool:
     return bool(user.get('can_download_ppt', 0)) or user.get('role') == 'admin'
+
 
 def is_admin(user: dict) -> bool:
     return user.get('role') == 'admin'

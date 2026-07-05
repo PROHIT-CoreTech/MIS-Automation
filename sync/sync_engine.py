@@ -3,34 +3,19 @@ Sync Engine — Fixed Parser
 Key fix: Skip Tally group HEADER rows, store only individual LEDGER rows
 """
 import re
+import logging
 import requests
 from datetime import datetime, timedelta
-from core.db import get_conn
+from core.db        import get_conn
+from core.config    import TALLY_URL
+from core.constants import MONTHS, SKIP_TALLY_GROUPS, COGS_GROUPS
+from core.utils     import month_label
 from sync.tally_connect import (
     get_all_companies, fetch_pl_data, fetch_bs_data, tally_date
 )
 from sync.masters_loader import get_mis_group
 
-TALLY_URL = "http://localhost:9000"
-MONTHS    = ['Jan','Feb','Mar','Apr','May','Jun',
-             'Jul','Aug','Sep','Oct','Nov','Dec']
-
-# These are Tally GROUP HEADER names — skip when found as ledger rows
-# They appear as section dividers in XML, not actual ledgers
-SKIP_TALLY_GROUPS = {
-    'trading account:', 'cost of sales :', 'income statement:',
-    'gross profit :', 'profit & loss a/c', 'gross profit c/o',
-    'gross profit b/f', 'nett profit', 'net profit',
-}
-
-# COGS sub-group names — these are valid tally_groups for COGS breakdown
-COGS_GROUPS = {
-    'opening stock', 'purchase accounts', 'add: purchase accounts',
-    'less: closing stock', 'closing stock', 'direct expenses',
-}
-
-def month_label(y, m):
-    return f"{MONTHS[m-1]}-{str(y)[2:]}"
+log = logging.getLogger(__name__)
 
 # ── FIXED XML PARSER ───────────────────────────────────────
 def parse_pl_xml(xml_text: str) -> list:
@@ -156,7 +141,7 @@ def sync_all(progress_callback=None) -> dict:
             conn.commit()
             results.append({'company': name, 'status': 'ok', 'records': records})
         except Exception as e:
-            print(f"[Sync] Error {name}: {e}")
+            log.error("[Sync] Error %s: %s", name, e)
             conn.execute(
                 "UPDATE companies SET sync_status='error' WHERE id=?", (cid,)
             )
@@ -218,7 +203,7 @@ def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
                 records += 1
             conn.commit()
         except Exception as e:
-            print(f"[Sync] P&L {company_name} {cur.strftime('%b-%y')}: {e}")
+            log.error("[Sync] P&L %s %s: %s", company_name, cur.strftime('%b-%y'), e)
 
         cur = nxt
     return records
@@ -257,7 +242,7 @@ def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
                 records += 1
             conn.commit()
         except Exception as e:
-            print(f"[Sync] BS {company_name} {cur.strftime('%b-%y')}: {e}")
+            log.error("[Sync] BS %s %s: %s", company_name, cur.strftime('%b-%y'), e)
 
         cur = nxt
     return records
@@ -344,11 +329,11 @@ def _sync_ageing_company(company_id: int, company_name: str, conn) -> int:
         try:
             xml_text = _fetch_ageing_xml(report_name, company_name)
             if 'LINEERROR' in xml_text:
-                print(f"[Ageing] {report_name} for '{company_name}': Tally error in response")
+                log.warning("[Ageing] %s for '%s': Tally error in response", report_name, company_name)
                 continue
 
             bills = _parse_bills(xml_text)
-            print(f"[Ageing] {company_name} | {party_type}: {len(bills)} bills")
+            log.info("[Ageing] %s | %s: %d bills", company_name, party_type, len(bills))
 
             # Clear old data then insert fresh
             conn.execute(
@@ -368,7 +353,7 @@ def _sync_ageing_company(company_id: int, company_name: str, conn) -> int:
             total += len(bills)
 
         except Exception as e:
-            print(f"[Ageing] Error syncing {report_name} for '{company_name}': {e}")
+            log.error("[Ageing] Error syncing %s for '%s': %s", report_name, company_name, e)
 
     return total
 
