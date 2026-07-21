@@ -172,7 +172,7 @@ def _render_date_filter(company_id: int) -> None:
         key=f"{ck}_ts",
     )
 
-    if st.button("🔄 Reset", use_container_width=True, key="gf_reset"):
+    if st.button("🔄 Reset", width="stretch", key="gf_reset"):
         for k in [f"{ck}_from", f"{ck}_to", f"{ck}_quick",
                   f"{ck}_qs",   f"{ck}_fs",  f"{ck}_ts"]:
             st.session_state.pop(k, None)
@@ -233,8 +233,17 @@ def show_sidebar(real: dict, user: dict) -> None:
                 cid = st.session_state.get('global_company_id')
                 if cid:
                     try:
+                        # Fetch the tenant's remote Tally URL first
+                        c = get_conn()
+                        row = c.execute(
+                            "SELECT t.tally_url FROM tenants t JOIN companies c ON t.id = c.tenant_id WHERE c.id = ?", 
+                            (cid,)
+                        ).fetchone()
+                        t_url = row['tally_url'] if row and row['tally_url'] else None
+                        c.close()
+
                         from sync.sync_engine import sync_company_now
-                        sync_company_now(cid)
+                        sync_company_now(cid, t_url)
                     except Exception:
                         pass  # Tally unreachable — just rerun with existing data
                 st.rerun()
@@ -276,6 +285,7 @@ def show_sidebar(real: dict, user: dict) -> None:
             
             if role == 'admin':
                 nav_items.append(("⚙️ Admin Panel", "admin"))
+                nav_items.append(("💳 Subscription", "subscription"))
                 if 'sync' in enabled_features:
                     nav_items.append(("🔄 Sync Status", "sync"))
 
@@ -283,7 +293,7 @@ def show_sidebar(real: dict, user: dict) -> None:
             is_active = st.session_state.page == key
             if st.button(
                 label, key=f"nav_{key}",
-                use_container_width=True,
+                width="stretch",
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state.page = key
@@ -292,7 +302,7 @@ def show_sidebar(real: dict, user: dict) -> None:
         # 4. Impersonation banner
         if st.session_state.impersonating:
             st.warning(f"👁 Viewing as:\n**{user.get('username')}**")
-            if st.button("↩️ Exit View", use_container_width=True):
+            if st.button("↩️ Exit View", width="stretch"):
                 st.session_state.impersonating = None
                 st.session_state.page = 'dashboard'
                 st.rerun()

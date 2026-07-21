@@ -4,7 +4,7 @@ portal_pages/login.py — Login page UI.
 Extracted from app.py to keep the entry point slim.
 """
 import streamlit as st
-from core.auth import login
+from core.auth import login, create_session
 from core.theme import inject_tilt_js
 
 
@@ -132,13 +132,13 @@ def show_login(tenant_dict: dict | None = None, super_admin_only: bool = False) 
             password = st.text_input("Password", type="password",
                                      placeholder="Enter your password")
             submit   = st.form_submit_button("Sign In",
-                                             use_container_width=True,
+                                             width="stretch",
                                              type="primary")
         st.markdown('</div>', unsafe_allow_html=True)
  
         # Show back to landing only if not inside a tenant subdomain
         if not tenant_dict:
-            if st.button("⬅ Back to Home", use_container_width=True, key="back_to_landing"):
+            if st.button("⬅ Back to Home", width="stretch", key="back_to_landing"):
                 st.session_state.view = 'landing'
                 st.rerun()
  
@@ -161,6 +161,11 @@ def show_login(tenant_dict: dict | None = None, super_admin_only: bool = False) 
                         else:
                             st.session_state.user = user
                             st.session_state.page = 'saas_admin' if user.get('role') == 'super_admin' else 'dashboard'
+                            
+                            # CREATE PERSISTENT SESSION
+                            token = create_session(user['id'], hours=24)
+                            st.query_params["session"] = token
+                            
                             st.rerun()
                     else:
                         st.error("❌ Invalid username or password")

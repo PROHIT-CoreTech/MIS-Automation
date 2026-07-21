@@ -130,15 +130,15 @@ def _bs_monthly(bs_rows):
     cash_actual     = defaultdict(float)
 
     def _is_bank_od(n: str) -> bool:
-    return 'bank od' in n or 'overdraft' in n or 'bank occ' in n
+        return 'bank od' in n or 'overdraft' in n or 'bank occ' in n
 
-def _is_plug_entry(n: str) -> bool:
-    """Exclude Tally's plug/suspense entries — not real cash movements."""
-    return (
-        'difference in opening' in n or
-        'suspense' in n or
-        'opening balance difference' in n
-    )
+    def _is_plug_entry(n: str) -> bool:
+        """Exclude Tally's plug/suspense entries — not real cash movements."""
+        return (
+            'difference in opening' in n or
+            'suspense' in n or
+            'opening balance difference' in n
+        )
 
     for key, mrows in rows_by_month.items():
         # 1. Group-total rows (authoritative)
@@ -460,7 +460,7 @@ def show_cash_flow(user):
             chart_layout(fig, height=320, barmode='group',
                          legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                      font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
+            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
@@ -478,7 +478,7 @@ def show_cash_flow(user):
             chart_layout(fig2, height=320,
                          legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                      font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
+            st.plotly_chart(fig2, width="stretch", config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         # Waterfall for the latest month
@@ -499,7 +499,7 @@ def show_cash_flow(user):
                 totals=dict(marker=dict(color=CHART_COLORS['blue'])),
             ))
             chart_layout(fig3, height=340, showlegend=False)
-            st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
+            st.plotly_chart(fig3, width="stretch", config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── TAB 2: STATEMENT TABLE ──────────────────────────────
@@ -515,7 +515,7 @@ def show_cash_flow(user):
         with col_title:
             st.markdown("**📋 Cash Flow Statement — Monthly (Indirect Method)**")
         with col_dl:
-            with st.popover("📥 Export", use_container_width=True):
+            with st.popover("📥 Export", width="stretch"):
                 st.caption(report_base_name)
                 excel_bytes = _generate_cashflow_excel(
                     per_month, mo_labels, from_lbl, to_lbl, company_name
@@ -525,7 +525,7 @@ def show_cash_flow(user):
                     data=excel_bytes,
                     file_name=f"{report_base_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True,
+                    width="stretch",
                     key="cf_dl_xlsx",
                 )
                 import pandas as pd
@@ -538,7 +538,7 @@ def show_cash_flow(user):
                     data=csv_bytes,
                     file_name=f"{report_base_name}.csv",
                     mime="text/csv",
-                    use_container_width=True,
+                    width="stretch",
                     key="cf_dl_csv",
                 )
 

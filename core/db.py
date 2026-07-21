@@ -29,6 +29,9 @@ def init_db() -> None:
     cur  = conn.cursor()
 
     # ── TENANTS (SaaS Tenants) ─────────────────────────────────
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='tenants'")
+    tenants_exists = cur.fetchone()
+
     cur.execute("""
     CREATE TABLE IF NOT EXISTS tenants (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -37,8 +40,15 @@ def init_db() -> None:
         plan_name     TEXT    NOT NULL DEFAULT 'Silver',
         features      TEXT    NOT NULL DEFAULT '["dashboard", "reports", "downloads", "sync"]',
         is_active     INTEGER DEFAULT 1,
-        created_at    TEXT    DEFAULT (datetime('now'))
+        created_at    TEXT    DEFAULT (datetime('now')),
+        tally_url     TEXT    DEFAULT 'http://localhost:9000'
     )""")
+    
+    if tenants_exists:
+        cur.execute("PRAGMA table_info(tenants)")
+        tenant_cols = [row[1] for row in cur.fetchall()]
+        if 'tally_url' not in tenant_cols:
+            cur.execute("ALTER TABLE tenants ADD COLUMN tally_url TEXT DEFAULT 'http://localhost:9000'")
 
     # Check and add Default Tenant if missing
     cur.execute("SELECT id FROM tenants WHERE id = 1")
@@ -144,6 +154,15 @@ def init_db() -> None:
     # Fill default tenant_id for existing rows
     cur.execute("UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL AND role != 'super_admin'")
     cur.execute("UPDATE companies SET tenant_id = 1 WHERE tenant_id IS NULL")
+
+    # ── SESSIONS (Persistent Login) ────────────────────────────────
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS sessions (
+        token       TEXT PRIMARY KEY,
+        user_id     INTEGER NOT NULL REFERENCES users(id),
+        created_at  TEXT DEFAULT (datetime('now')),
+        expires_at  TEXT NOT NULL
+    )""")
 
     # ── USER ↔ COMPANY MAP (RLS) ───────────────────────────────
     cur.execute("""

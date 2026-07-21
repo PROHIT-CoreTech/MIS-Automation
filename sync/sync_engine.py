@@ -104,7 +104,7 @@ def _sf(v):
         return 0.0
 
 # ── MAIN SYNC ──────────────────────────────────────────────
-def sync_company_now(company_id: int) -> dict:
+def sync_company_now(company_id: int, tally_url: str | None = None) -> dict:
     """
     Lightweight on-demand sync for a SINGLE company (as opposed to
     sync_all(), which loops every company — too slow to call on every
@@ -126,7 +126,7 @@ def sync_company_now(company_id: int) -> dict:
 
     name, last_sync = row['tally_name'], row['last_sync']
     try:
-        records = _sync_company(company_id, name, last_sync, conn)
+        records = _sync_company(company_id, name, last_sync, conn, tally_url)
         conn.execute("""
             UPDATE companies SET sync_status='ok',
             last_sync=datetime('now') WHERE id=?
@@ -144,8 +144,8 @@ def sync_company_now(company_id: int) -> dict:
         return {'status': 'error', 'message': str(e)}
 
 
-def sync_all(progress_callback=None, tenant_id: int = 1) -> dict:
-    companies = get_all_companies()
+def sync_all(progress_callback=None, tenant_id: int = 1, tally_url: str | None = None) -> dict:
+    companies = get_all_companies(tally_url)
     if not companies:
         return {'status': 'error',
                 'message': 'No companies found. Open a company in Tally first.'}
@@ -173,7 +173,7 @@ def sync_all(progress_callback=None, tenant_id: int = 1) -> dict:
         last_sync = row['last_sync']
 
         try:
-            records = _sync_company(cid, name, last_sync, conn)
+            records = _sync_company(cid, name, last_sync, conn, tally_url)
             conn.execute("""
                 UPDATE companies SET sync_status='ok',
                 last_sync=datetime('now') WHERE id=?
@@ -212,7 +212,7 @@ def _lookback_start(now: datetime) -> datetime:
     return datetime(previous_fy_start_year, 4, 1)
 
 
-def _sync_company(company_id, company_name, last_sync, conn) -> int:
+def _sync_company(company_id, company_name, last_sync, conn, tally_url: str | None = None) -> int:
     now = datetime.now()
     if last_sync is None:
         # Brand-new company: pull full history.
@@ -232,12 +232,12 @@ def _sync_company(company_id, company_name, last_sync, conn) -> int:
         start    = min(lookback, last_dt.replace(day=1))
 
     records  = 0
-    records += _sync_pl_monthly(company_id, company_name, start, now, conn)
-    records += _sync_bs_monthly(company_id, company_name, start, now, conn)
-    records += _sync_ageing_company(company_id, company_name, conn)
+    records += _sync_pl_monthly(company_id, company_name, start, now, conn, tally_url)
+    records += _sync_bs_monthly(company_id, company_name, start, now, conn, tally_url)
+    records += _sync_ageing_company(company_id, company_name, conn, tally_url)
     return records
 
-def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
+def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url: str | None = None) -> int:
     records = 0
     cur     = start_dt.replace(day=1)
 
@@ -251,7 +251,8 @@ def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
         try:
             xml_text = fetch_pl_data(company_name,
                                      tally_date(cur),
-                                     tally_date(month_end))
+                                     tally_date(month_end),
+                                     tally_url)
             rows = parse_pl_xml(xml_text)
 
             for r in rows:
@@ -279,7 +280,7 @@ def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
         cur = nxt
     return records
 
-def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
+def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url: str | None = None) -> int:
     records = 0
     cur     = start_dt.replace(day=1)
 
@@ -293,7 +294,8 @@ def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn) -> int:
         try:
             xml_text = fetch_bs_data(company_name,
                                      tally_date(cur),
-                                     tally_date(month_end))
+                                     tally_date(month_end),
+                                     tally_url)
             rows = parse_bs_xml(xml_text)
             for r in rows:
                 tg, mg = get_mis_group(r['ledger'], r.get('tally_group', ''))
@@ -333,7 +335,7 @@ def _parse_tally_date(d: str):
     return None
 
 
-def _fetch_ageing_xml(report_name: str, company_name: str) -> str:
+def _fetch_ageing_xml(report_name: str, company_name: str, tally_url: str | None = None) -> str:
     """Fetch Bills Receivable or Bills Payable XML from Tally"""
     xml_req = f"""<ENVELOPE>
 <HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER>
@@ -344,7 +346,9 @@ def _fetch_ageing_xml(report_name: str, company_name: str) -> str:
 <SVCURRENTCOMPANY>{company_name}</SVCURRENTCOMPANY>
 </STATICVARIABLES>
 </REQUESTDESC></EXPORTDATA></BODY></ENVELOPE>"""
-    resp = requests.post(TALLY_URL,
+    from sync.tally_connect import get_url
+    url = get_url(tally_url)
+    resp = requests.post(url,
                          data=xml_req.encode('utf-8'),
                          headers={'Content-Type': 'application/xml'},
                          timeout=30)
@@ -384,7 +388,7 @@ def _parse_bills(xml_text: str) -> list:
     return bills
 
 
-def _sync_ageing_company(company_id: int, company_name: str, conn) -> int:
+def _sync_ageing_company(company_id: int, company_name: str, conn, tally_url: str | None = None) -> int:
     """
     Sync Bills Receivable (customer) and Bills Payable (vendor) ageing
     data from Tally for the given company.
@@ -398,7 +402,7 @@ def _sync_ageing_company(company_id: int, company_name: str, conn) -> int:
         ('vendor',   'Bills Payable'),
     ]:
         try:
-            xml_text = _fetch_ageing_xml(report_name, company_name)
+            xml_text = _fetch_ageing_xml(report_name, company_name, tally_url)
             if 'LINEERROR' in xml_text:
                 log.warning("[Ageing] %s for '%s': Tally error in response", report_name, company_name)
                 continue

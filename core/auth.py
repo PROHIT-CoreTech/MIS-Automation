@@ -27,6 +27,67 @@ def verify_password(plain: str, hashed: str) -> bool:
     return bcrypt.checkpw(plain.encode(), hashed.encode())
 
 
+# ── SESSIONS (Persistent Login) ────────────────────────────────
+import secrets
+
+def create_session(user_id: int, hours: int = 24) -> str:
+    """Generate a token, store in DB, and return it."""
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.now() + timedelta(hours=hours)).isoformat()
+    conn = get_conn()
+    conn.execute(
+        "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
+        (token, user_id, expires_at)
+    )
+    conn.commit()
+    conn.close()
+    return token
+
+def get_user_by_session(token: str) -> dict | None:
+    """Validate token and return full user dict if valid and active."""
+    conn = get_conn()
+    session = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
+    if not session:
+        conn.close()
+        return None
+        
+    if datetime.now() > datetime.fromisoformat(session['expires_at']):
+        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+        conn.commit()
+        conn.close()
+        return None
+        
+    # Get user
+    user = conn.execute("SELECT * FROM users WHERE id=? AND is_active=1", (session['user_id'],)).fetchone()
+    if not user:
+        conn.close()
+        return None
+        
+    # Standard login checks
+    tenant = None
+    if user['tenant_id']:
+        tenant = conn.execute("SELECT * FROM tenants WHERE id=?", (user['tenant_id'],)).fetchone()
+        if tenant and not tenant['is_active']:
+            conn.close()
+            return None
+            
+    company_ids = get_company_ids_for_user(user['id'], user['role'], user['tenant_id'])
+    user_dict = dict(user)
+    user_dict['company_ids'] = company_ids
+    user_dict['tenant'] = dict(tenant) if tenant else None
+    conn.close()
+    return user_dict
+
+def delete_session(token: str) -> None:
+    """Remove session from DB."""
+    if not token: return
+    conn = get_conn()
+    conn.execute("DELETE FROM sessions WHERE token=?", (token,))
+    conn.commit()
+    conn.close()
+
+
+
 # ── CREATE ADMIN (first-time setup) ────────────────────────────
 def create_admin_if_not_exists(
     username: str = ADMIN_USERNAME,

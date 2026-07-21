@@ -1,117 +1,7 @@
 import streamlit as st
 from core.theme import inject_theme, inject_tilt_js
 
-@st.dialog("Complete Your Registration", width="large")
-def checkout_dialog(plan_name: str, price: str, features: list):
-    """Dialogue step tracking simulated payment capture and tenant config."""
-    if 'checkout_step' not in st.session_state:
-        st.session_state.checkout_step = 1
-        st.session_state.payment_success = False
 
-    if st.session_state.checkout_step == 1:
-        st.markdown(f"### 💳 Complete Checkout: {plan_name}")
-        st.caption("Enter your billing details to activate your financial workspace.")
-        st.divider()
-        
-        cardholder = st.text_input("Cardholder Name", placeholder="Jane Doe")
-        col1, col2, col3 = st.columns([2, 1, 1])
-        card_num = col1.text_input("Card Number", placeholder="•••• •••• •••• ••••")
-        expiry = col2.text_input("Expiry", placeholder="MM/YY")
-        cvv = col3.text_input("CVV", type="password", placeholder="•••")
-        
-        st.write("")
-        if st.button("💸 Pay & Initialize Workspace", type="primary", use_container_width=True):
-            if not cardholder or not card_num or not expiry or not cvv:
-                st.error("Please fill out all payment details.")
-            else:
-                with st.spinner("Processing secure payment..."):
-                    import time
-                    time.sleep(1.5)
-                st.session_state.payment_success = True
-                st.session_state.checkout_step = 2
-                st.rerun()
-
-    elif st.session_state.checkout_step == 2:
-        st.markdown("### 🏢 Configure Your Workspace")
-        st.caption("Customize your new tenant slug and admin dashboard account.")
-        st.divider()
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown("**Workspace Settings**")
-            workspace_name = st.text_input("Tenant Name", placeholder="Acme Corporation")
-            workspace_slug = st.text_input("Portal Subdomain Slug", placeholder="acme (letters/numbers only)")
-        with col2:
-            st.markdown("**Admin Account Setup**")
-            admin_name = st.text_input("Admin Full Name", placeholder="John Doe")
-            admin_user = st.text_input("Admin Username", placeholder="john_admin")
-            admin_pass = st.text_input("Admin Password", type="password", placeholder="••••••••")
-            
-        st.write("")
-        if st.button("🚀 Register & Activate Workspace", type="primary", use_container_width=True):
-            slug_clean = workspace_slug.lower().strip()
-            import re
-            
-            # Check unique slug in database
-            from core.db import get_conn
-            conn = get_conn()
-            existing = conn.execute("SELECT id FROM tenants WHERE slug=?", (slug_clean,)).fetchone()
-            conn.close()
-            
-            if not workspace_name or not slug_clean or not admin_name or not admin_user or not admin_pass:
-                st.error("All settings and admin fields are required.")
-            elif not re.match(r"^[a-z0-9_\-]+$", slug_clean):
-                st.error("Slug must contain only lowercase letters, numbers, hyphens, or underscores.")
-            elif existing:
-                st.error(f"The subdomain slug '{slug_clean}' is already taken. Please choose another.")
-            else:
-                with st.spinner("Provisioning workspace..."):
-                    from core.auth import create_tenant, create_tenant_admin
-                    t_id = create_tenant(workspace_name, slug_clean, plan_name, features)
-                    create_tenant_admin(t_id, admin_user, admin_pass, admin_name)
-                    
-                    st.session_state.registered_slug = slug_clean
-                    st.session_state.registered_name = workspace_name
-                    st.session_state.checkout_step = 3
-                    st.rerun()
-
-    elif st.session_state.checkout_step == 3:
-        slug = st.session_state.registered_slug
-        name = st.session_state.registered_name
-        
-        st.balloons()
-        st.markdown(f"### 🎉 Setup Complete!")
-        st.divider()
-        st.success(f"Workspace **{name}** has been successfully created!")
-        st.markdown(f"""
-            Your custom tenant login portal is ready at:
-            <br/><br/>
-            <div style='background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.2); 
-                 border-radius:12px; padding:12px; font-weight:600; text-align:center; font-size:1.1rem; margin-bottom:24px;'>
-                <a href='http://{slug}.localhost:8501/' target='_self' style='color:#6366f1; text-decoration:none;'>
-                    http://{slug}.localhost:8501
-                </a>
-            </div>
-            Click the link above or click the button below to navigate to your branded login screen and start using the portal.
-        """, unsafe_allow_html=True)
-        
-        st.write("")
-        col_exit, col_go = st.columns(2)
-        with col_exit:
-            if st.button("Close", use_container_width=True):
-                st.session_state.pop('checkout_step', None)
-                st.session_state.pop('payment_success', None)
-                st.session_state.pop('registered_slug', None)
-                st.session_state.pop('registered_name', None)
-                st.rerun()
-        with col_go:
-            st.markdown(f"""
-                <a href='http://{slug}.localhost:8501/' target='_self' style='
-                    display:block; text-align:center; background:#6366f1; color:white; 
-                    padding:10px 16px; border-radius:8px; text-decoration:none; font-weight:600;'>
-                    🚀 Go to Portal
-                </a>
-            """, unsafe_allow_html=True)
 
 
 def show_landing() -> None:
@@ -317,7 +207,7 @@ def show_landing() -> None:
     with col_login:
         st.write("") # Spacer
         st.write("")
-        if st.button("🔑 Super Admin Access", key="top_login_btn", use_container_width=True):
+        if st.button("🔑 Super Admin Access", key="top_login_btn", width="stretch"):
             st.session_state.view = 'login'
             st.rerun()
 
@@ -409,8 +299,12 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Bronze", key="p_bronze_btn", use_container_width=True):
-            checkout_dialog("Bronze Plan", "₹1,999/mo", ["dashboard", "downloads"])
+        if st.button("Choose Bronze", key="p_bronze_btn", width="stretch"):
+            st.session_state.onboarding_plan = "Bronze"
+            st.session_state.onboarding_price = "₹1,999/mo"
+            st.session_state.onboarding_features = ["dashboard", "downloads"]
+            st.session_state.view = 'onboarding'
+            st.rerun()
             
     with p2:
         st.markdown("""
@@ -427,8 +321,12 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Silver", key="p_silver_btn", type="primary", use_container_width=True):
-            checkout_dialog("Silver Plan", "₹4,999/mo", ["dashboard", "reports", "downloads", "sync"])
+        if st.button("Choose Silver", key="p_silver_btn", type="primary", width="stretch"):
+            st.session_state.onboarding_plan = "Silver"
+            st.session_state.onboarding_price = "₹4,999/mo"
+            st.session_state.onboarding_features = ["dashboard", "reports", "downloads", "sync"]
+            st.session_state.view = 'onboarding'
+            st.rerun()
             
     with p3:
         st.markdown("""
@@ -445,8 +343,12 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Gold", key="p_gold_btn", use_container_width=True):
-            checkout_dialog("Gold Plan", "₹9,999/mo", ["dashboard", "reports", "cash_flow", "downloads", "sync"])
+        if st.button("Choose Gold", key="p_gold_btn", width="stretch"):
+            st.session_state.onboarding_plan = "Gold"
+            st.session_state.onboarding_price = "₹9,999/mo"
+            st.session_state.onboarding_features = ["dashboard", "reports", "cash_flow", "downloads", "sync"]
+            st.session_state.view = 'onboarding'
+            st.rerun()
 
     st.markdown("<hr>", unsafe_allow_html=True)
 

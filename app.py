@@ -55,6 +55,17 @@ if 'impersonating' not in st.session_state: st.session_state.impersonating = Non
 if 'page'          not in st.session_state: st.session_state.page          = 'dashboard'
 if 'view'          not in st.session_state: st.session_state.view          = 'landing'
 
+# Restore session from URL params
+if st.session_state.user is None and "session" in st.query_params:
+    from core.auth import get_user_by_session
+    restored_user = get_user_by_session(st.query_params["session"])
+    if restored_user:
+        st.session_state.user = restored_user
+        st.session_state.page = 'saas_admin' if restored_user.get('role') == 'super_admin' else 'dashboard'
+    else:
+        # Invalid or expired token
+        del st.query_params["session"]
+
 
 # ── MAIN APP ───────────────────────────────────────────────────
 def show_app() -> None:
@@ -64,6 +75,11 @@ def show_app() -> None:
 
     # Fixed logout button (top-right, always visible)
     if st.button("🚪 Logout", key="global_logout"):
+        from core.auth import delete_session
+        if "session" in st.query_params:
+            delete_session(st.query_params["session"])
+            del st.query_params["session"]
+            
         st.session_state.user          = None
         st.session_state.impersonating = None
         st.session_state.page          = 'dashboard'
@@ -104,7 +120,7 @@ def show_app() -> None:
         if page not in enabled_features:
             st.error("⛔ This feature is not enabled for your plan.")
             return
-    elif page == 'admin':
+    elif page in ('admin', 'subscription'):
         if role != 'admin':
             st.error("⛔ Access denied")
             return
@@ -129,6 +145,9 @@ def show_app() -> None:
     elif page == 'admin':
         from portal_pages.admin import show_admin
         show_admin(real)
+    elif page == 'subscription':
+        from portal_pages.subscription import show_subscription
+        show_subscription(real)
     elif page == 'sync':
         from portal_pages.sync_status import show_sync
         show_sync(real)
@@ -175,6 +194,11 @@ if subdomain:
             user_tenant_id = st.session_state.user.get('tenant_id')
             if user_tenant_id != tenant['id']:
                 # Mismatch (e.g. Super Admin or client from another tenant) -> force logout
+                from core.auth import delete_session
+                if "session" in st.query_params:
+                    delete_session(st.query_params["session"])
+                    del st.query_params["session"]
+                    
                 st.session_state.user = None
                 st.session_state.impersonating = None
                 st.session_state.page = 'dashboard'
@@ -191,6 +215,9 @@ else:
         if st.session_state.view == 'landing':
             from portal_pages.landing import show_landing
             show_landing()
+        elif st.session_state.view == 'onboarding':
+            from portal_pages.onboarding import show_onboarding
+            show_onboarding()
         else:
             from portal_pages.login import show_login
             show_login(super_admin_only=True)
@@ -221,6 +248,11 @@ else:
                 
                 # Render manual logout button
                 if st.button("🚪 Log Out", key="base_redirect_logout"):
+                    from core.auth import delete_session
+                    if "session" in st.query_params:
+                        delete_session(st.query_params["session"])
+                        del st.query_params["session"]
+                        
                     st.session_state.user = None
                     st.session_state.impersonating = None
                     st.session_state.page = 'dashboard'

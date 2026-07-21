@@ -4,11 +4,11 @@ import requests
 import re
 from core.db import get_conn
 
-TALLY_URL = "http://localhost:9000"
-
-def test_tally():
+def test_tally(tally_url: str):
     try:
-        r = requests.post(TALLY_URL,
+        from sync.tally_connect import get_url
+        url = get_url(tally_url)
+        r = requests.post(url,
             data='<ENVELOPE><HEADER><TALLYREQUEST>Export Data</TALLYREQUEST></HEADER></ENVELOPE>',
             headers={'Content-Type': 'application/xml'}, timeout=10)
         return r.status_code == 200
@@ -18,11 +18,31 @@ def test_tally():
 def show_sync(user):
     st.markdown("## 🔄 Sync Status")
 
+    tenant_id = user.get('tenant_id', 1)
+    
+    # Fetch current tally_url for this tenant
+    conn = get_conn()
+    t_row = conn.execute("SELECT tally_url FROM tenants WHERE id=?", (tenant_id,)).fetchone()
+    current_tally_url = t_row['tally_url'] if t_row and t_row['tally_url'] else "http://localhost:9000"
+    conn.close()
+    
+    # Allow user to update Tally URL
+    with st.expander("⚙️ Connection Settings", expanded=False):
+        new_url = st.text_input("Tally Server URL", value=current_tally_url, help="Change this if your Tally Prime is hosted on a remote server.")
+        if st.button("Update URL"):
+            conn = get_conn()
+            conn.execute("UPDATE tenants SET tally_url=? WHERE id=?", (new_url, tenant_id))
+            conn.commit()
+            conn.close()
+            st.success("Tally URL updated successfully!")
+            current_tally_url = new_url
+            st.rerun()
+
     # Connection check
-    if test_tally():
-        st.success("✅ Tally connected successfully")
+    if test_tally(current_tally_url):
+        st.success("✅ Tally connected successfully at " + current_tally_url)
     else:
-        st.error("❌ Tally not connected — open Tally with a company")
+        st.error(f"❌ Tally not reachable at {current_tally_url} — Please ensure Tally Prime is open and accessible.")
         return
 
     st.divider()
@@ -32,7 +52,7 @@ def show_sync(user):
         st.markdown("### Sync Data from Tally")
         st.caption("This will fetch all companies from Tally and sync their data to the portal.")
     with col2:
-        sync_btn = st.button("🔄 Sync Now", type="primary", use_container_width=True)
+        sync_btn = st.button("🔄 Sync Now", type="primary", width="stretch")
 
     if sync_btn:
         from sync.sync_engine import sync_all
@@ -44,7 +64,7 @@ def show_sync(user):
             status.info(f"⏳ Syncing **{company}** ({idx}/{total})")
 
         with st.spinner("Connecting to Tally..."):
-            result = sync_all(progress_callback=cb, tenant_id=user.get('tenant_id', 1))
+            result = sync_all(progress_callback=cb, tenant_id=tenant_id, tally_url=current_tally_url)
 
         progress.progress(1.0)
 
