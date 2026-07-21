@@ -1,8 +1,26 @@
 import streamlit as st
 import json
 import pandas as pd
+import re
+import plotly.graph_objects as go
 from core.db import get_conn
 from core.auth import get_all_tenants, create_tenant, create_tenant_admin, update_tenant
+
+# --- CONSTANTS ---
+PLAN_PRICES = {"Bronze": 2999, "Silver": 4999, "Gold": 9999}
+PLAN_COLORS = {"Bronze": "#d97706", "Silver": "#94a3b8", "Gold": "#eab308"}
+FEATURES_MAP = {
+    "📊 Dashboard": "dashboard",
+    "📄 MIS Reports": "reports",
+    "💵 Cash Flow": "cash_flow",
+    "📥 Downloads": "downloads",
+    "🔄 Tally Sync": "sync"
+}
+PLAN_DEFAULTS = {
+    "Bronze": ["📊 Dashboard", "📥 Downloads"],
+    "Silver": ["📊 Dashboard", "📄 MIS Reports", "📥 Downloads", "🔄 Tally Sync"],
+    "Gold": ["📊 Dashboard", "📄 MIS Reports", "💵 Cash Flow", "📥 Downloads", "🔄 Tally Sync"]
+}
 
 def show_saas_admin():
     """Render the SaaS Super Admin Portal."""
@@ -22,12 +40,11 @@ def show_saas_admin():
         conn.close()
         
         # Calculate revenue and metrics
-        plan_prices = {"Bronze": 2999, "Silver": 4999, "Gold": 9999}
         active_tenants = [t for t in tenants if t['is_active']]
         
         def get_price(plan_name):
             clean_name = str(plan_name).replace(" Plan", "").strip()
-            return plan_prices.get(clean_name, 0)
+            return PLAN_PRICES.get(clean_name, 0)
         
         total_mrr = sum(get_price(t['plan_name']) for t in active_tenants)
         
@@ -47,14 +64,6 @@ def show_saas_admin():
                 if clean_plan in revenue_by_plan:
                     revenue_by_plan[clean_plan] += get_price(raw_plan)
                     
-            import plotly.graph_objects as go
-            
-            # Map plans to modern, premium colors
-            plan_colors = {
-                "Bronze": "#d97706", # Rich amber/bronze
-                "Silver": "#94a3b8", # Elegant slate/silver
-                "Gold":   "#eab308"  # Bright gold
-            }
             plan_names = list(revenue_by_plan.keys())
             plan_revenues = list(revenue_by_plan.values())
             
@@ -67,7 +76,7 @@ def show_saas_admin():
                     values=plan_revenues,
                     hole=0.75,
                     marker=dict(
-                        colors=[plan_colors.get(p, "#6366f1") for p in plan_names],
+                        colors=[PLAN_COLORS.get(p, "#6366f1") for p in plan_names],
                         line=dict(color='#0e1117', width=5) # sleek dark gap between slices matching standard Streamlit dark bg
                     ),
                     textinfo='label+percent',
@@ -161,25 +170,17 @@ def show_saas_admin():
                             key=f"plan_select_{t['id']}"
                         )
                         
-                        available_features = {
-                            "📊 Dashboard": "dashboard",
-                            "📄 MIS Reports": "reports",
-                            "💵 Cash Flow": "cash_flow",
-                            "📥 Downloads": "downloads",
-                            "🔄 Tally Sync": "sync"
-                        }
-                        
                         # Pre-select active features
-                        default_selected = [k for k, v in available_features.items() if v in features_list]
+                        default_selected = [k for k, v in FEATURES_MAP.items() if v in features_list]
                         
                         selected_features_keys = st.multiselect(
                             "Configure Features", 
-                            list(available_features.keys()),
+                            list(FEATURES_MAP.keys()),
                             default=default_selected,
                             key=f"feat_select_{t['id']}"
                         )
                         
-                        resolved_features = [available_features[k] for k in selected_features_keys]
+                        resolved_features = [FEATURES_MAP[k] for k in selected_features_keys]
                     
                     st.write("")
                     if st.button("💾 Save Changes", key=f"save_tenant_{t['id']}", type="primary"):
@@ -204,24 +205,10 @@ def show_saas_admin():
                 tenant_slug = st.text_input("Unique URL/Slug *", placeholder="e.g. hooli (letters/numbers only)")
                 tenant_plan = st.selectbox("Plan Level *", ["Bronze", "Silver", "Gold"], index=1)
                 
-                feat_opts = {
-                    "📊 Dashboard": "dashboard",
-                    "📄 MIS Reports": "reports",
-                    "💵 Cash Flow": "cash_flow",
-                    "📥 Downloads": "downloads",
-                    "🔄 Tally Sync": "sync"
-                }
-                
-                plan_defaults = {
-                    "Bronze": ["📊 Dashboard", "📥 Downloads"],
-                    "Silver": ["📊 Dashboard", "📄 MIS Reports", "📥 Downloads", "🔄 Tally Sync"],
-                    "Gold": ["📊 Dashboard", "📄 MIS Reports", "💵 Cash Flow", "📥 Downloads", "🔄 Tally Sync"]
-                }
-                
                 selected_feats_keys = st.multiselect(
                     "Enable Features *", 
-                    list(feat_opts.keys()), 
-                    default=plan_defaults.get(tenant_plan, ["📊 Dashboard"])
+                    list(FEATURES_MAP.keys()), 
+                    default=PLAN_DEFAULTS.get(tenant_plan, ["📊 Dashboard"])
                 )
                 
             with col2:
@@ -236,7 +223,6 @@ def show_saas_admin():
             if submitted:
                 # Validation
                 slug_clean = tenant_slug.lower().strip()
-                import re
                 if not tenant_name or not tenant_slug or not admin_name or not admin_user or not admin_pass:
                     st.error("⚠️ All required fields (*) must be filled.")
                 elif not re.match(r"^[a-z0-9_\-]+$", slug_clean):
@@ -245,7 +231,7 @@ def show_saas_admin():
                     st.error("⚠️ You must enable at least one feature.")
                 else:
                     try:
-                        resolved_feats = [feat_opts[k] for k in selected_feats_keys]
+                        resolved_feats = [FEATURES_MAP[k] for k in selected_feats_keys]
                         # 1. Create Tenant
                         new_id = create_tenant(tenant_name, slug_clean, tenant_plan, resolved_feats)
                         # 2. Create Tenant Admin
