@@ -19,6 +19,14 @@ A Streamlit-based **Management Information System (MIS) Portal** that automatica
 
 ---
 
+## 🆕 Recent Updates
+- **UI Modernization**: Upgraded legacy bar charts to sleek, modern Donut charts (with dynamic center annotations) for SaaS Revenue tracking.
+- **Performance Optimization**: Hoisted rendering dictionaries and imports to the global scope across the SaaS Admin portal to significantly improve Streamlit hot-reload performance.
+- **Deprecation Cleanup**: Migrated entirely to Streamlit's new `width="stretch"` standard, eliminating all `use_container_width` terminal warnings.
+- **Form State Fixes**: Implemented native `st.form` capabilities for tenant creation to ensure smooth input clearing without premature `st.rerun()` resets.
+
+---
+
 ## 🗂️ Project Structure
 
 ```text
@@ -57,7 +65,7 @@ MIS-Automation/
 ## 🚀 Setup & Run
 
 ### Prerequisites
-- Python 3.10+
+- Python 3.11 or 3.12 (Highly recommended for stability. Avoid alpha/beta builds like 3.14 which may cause segmentation faults with pandas/numpy)
 - Tally Prime running on `localhost:9000` (for sync features)
 
 ### 1. Clone / Navigate to the project
@@ -75,6 +83,7 @@ source venv/bin/activate        # macOS / Linux
 ### 3. Install dependencies
 ```bash
 pip install -r requirements.txt
+pip install watchdog  # Recommended for better Streamlit hot-reload performance
 ```
 
 ### 4. Run the app
