@@ -121,16 +121,16 @@ def inject_theme() -> None:
     div[data-testid="stSidebarNav"] { display: none; }
     header[data-testid="stHeader"] {
         background: transparent !important;
-        height: 2.2rem !important;
+        height: 3.5rem !important;
         box-shadow: none !important;
         border: none !important;
     }
     div[data-testid="stDecoration"] { display: none !important; }
     div[data-testid="stToolbar"] button[kind="header"] { visibility: hidden; }
-    [data-testid="collapsedControl"] { display: none !important; }
 
-    .block-container { padding-top: 0.9rem !important; }
-    section[data-testid="stSidebar"] .block-container { padding-top: 0.4rem !important; }
+    /* ── PREMIUM SPACING ───────────────────────────────────── */
+    .block-container { padding: 3.5rem 3rem 2rem 3rem !important; }
+    section[data-testid="stSidebar"] .block-container { padding: 2.5rem 1.5rem !important; }
 
     /* ── STICKY PAGE HEADER ────────────────────────────────── */
     .page-sticky-header {
@@ -270,7 +270,7 @@ def inject_theme() -> None:
             var(--glass) !important;
         border: 1px solid var(--border-hi) !important;
         border-radius: var(--radius-lg) !important;
-        padding: 1.3rem 1.4rem !important;
+        padding: 1.5rem !important;
         backdrop-filter: blur(20px) !important;
         box-shadow:
             0 1px 0 rgba(255,255,255,0.06) inset,
@@ -348,10 +348,10 @@ def inject_theme() -> None:
             var(--glass);
         border: 1px solid var(--border);
         border-radius: var(--radius-md);
-        padding: 1.1rem 1.2rem 0.5rem 1.2rem;
+        padding: 1.5rem 1.5rem 1rem 1.5rem;
         backdrop-filter: blur(16px);
         box-shadow: 0 4px 24px rgba(0,0,0,0.3);
-        margin-bottom: 1rem;
+        margin-bottom: 1.5rem;
         position: relative;
         overflow: hidden;
     }
@@ -377,7 +377,7 @@ def inject_theme() -> None:
         padding: 0 !important;
         border: none !important;
         border-bottom: 1px solid var(--border) !important;
-        margin-bottom: 1.2rem !important;
+        margin-bottom: 1.5rem !important;
     }
     .stTabs [data-baseweb="tab"] {
         background: transparent !important;

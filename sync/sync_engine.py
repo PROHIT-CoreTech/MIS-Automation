@@ -144,7 +144,7 @@ def sync_company_now(company_id: int) -> dict:
         return {'status': 'error', 'message': str(e)}
 
 
-def sync_all(progress_callback=None) -> dict:
+def sync_all(progress_callback=None, tenant_id: int = 1) -> dict:
     companies = get_all_companies()
     if not companies:
         return {'status': 'error',
@@ -159,15 +159,15 @@ def sync_all(progress_callback=None) -> dict:
             progress_callback(name, idx+1, len(companies))
 
         conn.execute("""
-            INSERT INTO companies (tally_name, display_name, sync_status)
-            VALUES (?,?,'syncing')
-            ON CONFLICT(tally_name) DO UPDATE SET
+            INSERT INTO companies (tally_name, display_name, sync_status, tenant_id)
+            VALUES (?,?,'syncing',?)
+            ON CONFLICT(tenant_id, tally_name) DO UPDATE SET
                 display_name=excluded.display_name, sync_status='syncing'
-        """, (name, name))
+        """, (name, name, tenant_id))
         conn.commit()
 
         row       = conn.execute(
-            "SELECT id, last_sync FROM companies WHERE tally_name=?", (name,)
+            "SELECT id, last_sync FROM companies WHERE tenant_id=? AND tally_name=?", (tenant_id, name)
         ).fetchone()
         cid       = row['id']
         last_sync = row['last_sync']

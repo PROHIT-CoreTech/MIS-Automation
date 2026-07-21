@@ -56,10 +56,18 @@ def _render_company_selector(user: dict, conn) -> int | None:
         </p>""", unsafe_allow_html=True)
 
     if is_admin(user):
-        all_cos = conn.execute(
-            "SELECT id, display_name FROM companies "
-            "WHERE is_active=1 ORDER BY display_name"
-        ).fetchall()
+        if user.get('role') == 'super_admin':
+            all_cos = conn.execute(
+                "SELECT id, display_name FROM companies "
+                "WHERE is_active=1 ORDER BY display_name"
+            ).fetchall()
+        else:
+            all_cos = conn.execute(
+                "SELECT id, display_name FROM companies "
+                "WHERE is_active=1 AND tenant_id=? ORDER BY display_name",
+                (user.get('tenant_id'),)
+            ).fetchall()
+            
         if not all_cos:
             st.session_state['global_company_id']   = None
             st.session_state['global_company_name'] = ''
@@ -242,17 +250,34 @@ def show_sidebar(real: dict, user: dict) -> None:
 
         # 3. Navigation
         st.markdown("**Navigation**")
-        nav_items = [
-            ("📊 Dashboard",   "dashboard"),
-            ("📄 MIS Reports", "reports"),
-            ("💵 Cash Flow",   "cash_flow"),
-            ("📥 Downloads",   "downloads"),
-        ]
-        if role == 'admin':
-            nav_items += [
-                ("⚙️ Admin Panel", "admin"),
-                ("🔄 Sync Status", "sync"),
-            ]
+        nav_items = []
+        if role == 'super_admin':
+            nav_items = [("🏢 SaaS Admin", "saas_admin")]
+        else:
+            import json
+            tenant = real.get('tenant')
+            if tenant and tenant.get('features'):
+                try:
+                    enabled_features = json.loads(tenant['features'])
+                except Exception:
+                    enabled_features = []
+            else:
+                enabled_features = ['dashboard', 'reports', 'cash_flow', 'downloads', 'sync']
+
+            # Add features dynamically
+            if 'dashboard' in enabled_features:
+                nav_items.append(("📊 Dashboard", "dashboard"))
+            if 'reports' in enabled_features:
+                nav_items.append(("📄 MIS Reports", "reports"))
+            if 'cash_flow' in enabled_features:
+                nav_items.append(("💵 Cash Flow", "cash_flow"))
+            if 'downloads' in enabled_features:
+                nav_items.append(("📥 Downloads", "downloads"))
+            
+            if role == 'admin':
+                nav_items.append(("⚙️ Admin Panel", "admin"))
+                if 'sync' in enabled_features:
+                    nav_items.append(("🔄 Sync Status", "sync"))
 
         for label, key in nav_items:
             is_active = st.session_state.page == key

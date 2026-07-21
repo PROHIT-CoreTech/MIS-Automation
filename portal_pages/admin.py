@@ -13,7 +13,7 @@ def show_admin(admin_user):
     # ── TAB 1: ALL CLIENTS ────────────────────────────────
     with tab1:
         st.subheader("All Clients")
-        clients = get_all_clients()
+        clients = get_all_clients(admin_user.get('tenant_id'))
         if not clients:
             st.info("No clients yet. Create one in 'Create Client' tab.")
         else:
@@ -28,7 +28,7 @@ def show_admin(admin_user):
                             full = get_user_by_id(c['id'])
                             if full:
                                 full_dict = dict(full)
-                                full_dict['company_ids'] = get_company_ids_for_user(c['id'], 'client')
+                                full_dict['company_ids'] = get_company_ids_for_user(c['id'], 'client', admin_user.get('tenant_id'))
                                 st.session_state.impersonating = full_dict
                                 st.rerun()
                     with col3:
@@ -48,7 +48,8 @@ def show_admin(admin_user):
         st.subheader("Create New Client")
         conn = get_conn()
         companies = conn.execute(
-            "SELECT id, display_name FROM companies WHERE is_active=1 ORDER BY display_name"
+            "SELECT id, display_name FROM companies WHERE is_active=1 AND tenant_id=? ORDER BY display_name",
+            (admin_user.get('tenant_id'),)
         ).fetchall()
         conn.close()
 
@@ -72,7 +73,7 @@ def show_admin(admin_user):
                     cids = [company_options[co] for co in selected_cos]
                     try:
                         create_client(username, password, full_name, cids,
-                                      can_excel, can_ppt, admin_user['id'])
+                                      can_excel, can_ppt, admin_user['id'], admin_user.get('tenant_id'))
                         st.success(f"✅ Client '{username}' created successfully!")
                     except Exception as e:
                         st.error(f"Error: {e}")
@@ -80,7 +81,7 @@ def show_admin(admin_user):
     # ── TAB 3: PERMISSIONS ────────────────────────────────
     with tab3:
         st.subheader("Update Client Permissions")
-        clients = get_all_clients()
+        clients = get_all_clients(admin_user.get('tenant_id'))
         if not clients:
             st.info("No clients yet.")
         else:

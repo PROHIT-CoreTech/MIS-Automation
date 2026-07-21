@@ -28,37 +28,122 @@ def init_db() -> None:
     conn = get_conn()
     cur  = conn.cursor()
 
-    # ── COMPANIES ──────────────────────────────────────────────
+    # ── TENANTS (SaaS Tenants) ─────────────────────────────────
     cur.execute("""
-    CREATE TABLE IF NOT EXISTS companies (
+    CREATE TABLE IF NOT EXISTS tenants (
         id            INTEGER PRIMARY KEY AUTOINCREMENT,
-        tally_name    TEXT    UNIQUE NOT NULL,
-        display_name  TEXT,
-        company_type  TEXT    DEFAULT 'STANDARD',
-        books_from    TEXT,
-        last_full_sync TEXT,
-        last_sync     TEXT,
-        sync_status   TEXT    DEFAULT 'pending',
+        name          TEXT    NOT NULL,
+        slug          TEXT    UNIQUE NOT NULL,
+        plan_name     TEXT    NOT NULL DEFAULT 'Silver',
+        features      TEXT    NOT NULL DEFAULT '["dashboard", "reports", "downloads", "sync"]',
         is_active     INTEGER DEFAULT 1,
         created_at    TEXT    DEFAULT (datetime('now'))
     )""")
 
-    # ── USERS ──────────────────────────────────────────────────
-    cur.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        username        TEXT    UNIQUE NOT NULL,
-        password_hash   TEXT    NOT NULL,
-        full_name       TEXT,
-        role            TEXT    NOT NULL DEFAULT 'client',
-        can_download_excel INTEGER DEFAULT 1,
-        can_download_ppt   INTEGER DEFAULT 0,
-        is_active       INTEGER DEFAULT 1,
-        failed_attempts INTEGER DEFAULT 0,
-        locked_until    TEXT,
-        created_at      TEXT    DEFAULT (datetime('now')),
-        created_by      INTEGER
-    )""")
+    # Check and add Default Tenant if missing
+    cur.execute("SELECT id FROM tenants WHERE id = 1")
+    if not cur.fetchone():
+        cur.execute("""
+        INSERT INTO tenants (id, name, slug, plan_name, features, is_active)
+        VALUES (1, 'Default Tenant', 'default', 'Gold', 
+                '["dashboard", "reports", "cash_flow", "downloads", "sync"]', 1)
+        """)
+
+    # Check if companies table exists and what its constraint is
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='companies'")
+    companies_exists = cur.fetchone()
+
+    if companies_exists:
+        # Check if index is UNIQUE on tally_name only (old behavior) or if tenant_id is missing
+        cur.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='companies'")
+        companies_sql = cur.fetchone()[0]
+        if 'UNIQUE(tenant_id, tally_name)' not in companies_sql or 'tenant_id' not in companies_sql:
+            # We must migrate companies table
+            cur.execute("ALTER TABLE companies RENAME TO companies_old")
+            cur.execute("""
+            CREATE TABLE companies (
+                id            INTEGER PRIMARY KEY AUTOINCREMENT,
+                tally_name    TEXT    NOT NULL,
+                display_name  TEXT,
+                company_type  TEXT    DEFAULT 'STANDARD',
+                books_from    TEXT,
+                last_full_sync TEXT,
+                last_sync     TEXT,
+                sync_status   TEXT    DEFAULT 'pending',
+                is_active     INTEGER DEFAULT 1,
+                created_at    TEXT    DEFAULT (datetime('now')),
+                tenant_id     INTEGER REFERENCES tenants(id),
+                UNIQUE(tenant_id, tally_name)
+            )""")
+            
+            # Check if companies_old has tenant_id
+            cur.execute("PRAGMA table_info(companies_old)")
+            old_company_cols = [row[1] for row in cur.fetchall()]
+            if 'tenant_id' in old_company_cols:
+                cur.execute("""
+                INSERT INTO companies (id, tally_name, display_name, company_type, books_from, 
+                                       last_full_sync, last_sync, sync_status, is_active, created_at, tenant_id)
+                SELECT id, tally_name, display_name, company_type, books_from, 
+                       last_full_sync, last_sync, sync_status, is_active, created_at, tenant_id
+                FROM companies_old
+                """)
+            else:
+                cur.execute("""
+                INSERT INTO companies (id, tally_name, display_name, company_type, books_from, 
+                                       last_full_sync, last_sync, sync_status, is_active, created_at, tenant_id)
+                SELECT id, tally_name, display_name, company_type, books_from, 
+                       last_full_sync, last_sync, sync_status, is_active, created_at, 1
+                FROM companies_old
+                """)
+            cur.execute("DROP TABLE companies_old")
+    else:
+        # Create companies table fresh
+        cur.execute("""
+        CREATE TABLE companies (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            tally_name    TEXT    NOT NULL,
+            display_name  TEXT,
+            company_type  TEXT    DEFAULT 'STANDARD',
+            books_from    TEXT,
+            last_full_sync TEXT,
+            last_sync     TEXT,
+            sync_status   TEXT    DEFAULT 'pending',
+            is_active     INTEGER DEFAULT 1,
+            created_at    TEXT    DEFAULT (datetime('now')),
+            tenant_id     INTEGER REFERENCES tenants(id),
+            UNIQUE(tenant_id, tally_name)
+        )""")
+
+    # ── USERS (With tenant_id column support) ──────────────────
+    cur.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='users'")
+    users_exists = cur.fetchone()
+
+    if users_exists:
+        cur.execute("PRAGMA table_info(users)")
+        user_cols = [row[1] for row in cur.fetchall()]
+        if 'tenant_id' not in user_cols:
+            cur.execute("ALTER TABLE users ADD COLUMN tenant_id INTEGER REFERENCES tenants(id)")
+    else:
+        cur.execute("""
+        CREATE TABLE users (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            username        TEXT    UNIQUE NOT NULL,
+            password_hash   TEXT    NOT NULL,
+            full_name       TEXT,
+            role            TEXT    NOT NULL DEFAULT 'client',
+            can_download_excel INTEGER DEFAULT 1,
+            can_download_ppt   INTEGER DEFAULT 0,
+            is_active       INTEGER DEFAULT 1,
+            failed_attempts INTEGER DEFAULT 0,
+            locked_until    TEXT,
+            created_at      TEXT    DEFAULT (datetime('now')),
+            created_by      INTEGER,
+            tenant_id       INTEGER REFERENCES tenants(id)
+        )""")
+
+    # Fill default tenant_id for existing rows
+    cur.execute("UPDATE users SET tenant_id = 1 WHERE tenant_id IS NULL AND role != 'super_admin'")
+    cur.execute("UPDATE companies SET tenant_id = 1 WHERE tenant_id IS NULL")
 
     # ── USER ↔ COMPANY MAP (RLS) ───────────────────────────────
     cur.execute("""
@@ -245,15 +330,21 @@ def init_db() -> None:
 
 
 # ── RLS HELPER ──────────────────────────────────────────────────
-def get_company_ids_for_user(user_id: int, role: str) -> list:
+def get_company_ids_for_user(user_id: int, role: str, tenant_id: int | None = None) -> list:
     """
-    Admin → all active company ids.
-    Client → only assigned company ids.
+    Super Admin → all active company ids.
+    Tenant Admin → only active company ids belonging to their tenant.
+    Client → only assigned company ids (which should also be active).
     """
     conn = get_conn()
-    if role == 'admin':
+    if role == 'super_admin':
         rows = conn.execute(
             "SELECT id FROM companies WHERE is_active=1"
+        ).fetchall()
+    elif role == 'admin':
+        rows = conn.execute(
+            "SELECT id FROM companies WHERE is_active=1 AND tenant_id=?",
+            (tenant_id,)
         ).fetchall()
     else:
         rows = conn.execute("""

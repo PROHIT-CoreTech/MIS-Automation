@@ -44,7 +44,7 @@ def show_sync(user):
             status.info(f"⏳ Syncing **{company}** ({idx}/{total})")
 
         with st.spinner("Connecting to Tally..."):
-            result = sync_all(progress_callback=cb)
+            result = sync_all(progress_callback=cb, tenant_id=user.get('tenant_id', 1))
 
         progress.progress(1.0)
 
@@ -69,8 +69,10 @@ def show_sync(user):
     conn = get_conn()
     cos  = conn.execute("""
         SELECT tally_name, sync_status, last_sync, last_full_sync
-        FROM companies ORDER BY tally_name
-    """).fetchall()
+        FROM companies 
+        WHERE tenant_id = ?
+        ORDER BY tally_name
+    """, (user.get('tenant_id', 1),)).fetchall()
     conn.close()
 
     if not cos:

@@ -1,25 +1,29 @@
-# MIS Portal — Automated Financial Dashboard
+# MIS Portal — Multi-Tenant SaaS Financial Dashboard
 
-A Streamlit-based **Management Information System (MIS) Portal** that automatically syncs financial data from **Tally Prime** and presents it as a live, role-based web dashboard with reports and export capabilities.
+A Streamlit-based **Management Information System (MIS) Portal** that automatically syncs financial data from **Tally Prime** and presents it as a live, role-based web dashboard. Designed with a multi-tenant SaaS architecture supporting subdomains for isolated client workspaces.
 
 ---
 
 ## ✨ Features
 
-- 📊 **Live Dashboard** — Revenue, Gross Profit, Net Profit KPIs with Plotly charts
-- 📄 **MIS Reports** — Detailed monthly P&L breakup with Customer & Vendor Ageing
-- 📥 **Downloads** — Formatted Excel (.xlsx) and PowerPoint (.pptx) exports
-- 🔄 **Auto Sync** — Pulls P&L, Balance Sheet, and Bill Ageing from Tally Prime via HTTP
-- 🔐 **Role-Based Access** — Admin and Client roles with per-company data isolation
-- 🔒 **Security** — bcrypt hashing, account lockout, admin impersonation
+- 🏢 **Multi-Tenant SaaS Architecture** — Subdomain-based routing (e.g., `client.localhost:8501`) for complete data isolation and branded login pages.
+- 👑 **Super Admin Dashboard** — Centralized management of tenants, tenant feature gating, and system overview.
+- 📊 **Live Dashboard & KPI** — Revenue, Gross Profit, Net Profit KPIs with Plotly charts.
+- 📄 **MIS Reports** — Detailed monthly P&L breakup with Customer & Vendor Ageing.
+- 💸 **Cash Flow** — Track inflows, outflows, and cash balances efficiently.
+- 📥 **Downloads** — Formatted Excel (.xlsx) and PowerPoint (.pptx) exports.
+- 🔄 **Auto Sync** — Pulls P&L, Balance Sheet, and Bill Ageing from Tally Prime via HTTP.
+- 🔐 **Role-Based Access** — Super Admin, Admin, and Client roles with granular access controls.
+- 🔒 **Security** — bcrypt hashing, tenant gating, account lockout, admin impersonation.
+- 🌍 **Landing Page** — Marketing landing page for new visitors on the base domain.
 
 ---
 
 ## 🗂️ Project Structure
 
-```
+```text
 MIS-Automation/
-├── app.py                    # Main Streamlit entry point
+├── app.py                    # Main Streamlit entry point & Subdomain Router
 ├── requirements.txt          # Python dependencies
 ├── config/
 │   └── masters/
@@ -27,12 +31,18 @@ MIS-Automation/
 ├── core/
 │   ├── auth.py               # Authentication, roles, permissions
 │   ├── db.py                 # SQLite schema & DB layer
-│   └── theme.py              # UI theme, CSS, chart helpers
+│   ├── theme.py              # UI theme, CSS, chart helpers
+│   └── subdomain.py          # Tenant routing & subdomain detection
 ├── portal_pages/
+│   ├── landing.py            # Marketing landing page (Base domain)
+│   ├── login.py              # Tenant-specific and Super Admin login
 │   ├── dashboard.py          # KPI charts and P&L summary
 │   ├── reports.py            # Detailed P&L + Ageing reports
+│   ├── cash_flow.py          # Cash flow visualization
 │   ├── downloads.py          # Excel & PPT export page
-│   ├── admin.py              # User management (admin only)
+│   ├── admin.py              # Tenant User management (admin only)
+│   ├── saas_admin.py         # Super Admin tenant management
+│   ├── sidebar.py            # Navigation & context switching
 │   └── sync_status.py        # Sync status viewer (admin only)
 ├── sync/
 │   ├── sync_engine.py        # Tally sync: P&L, BS, Ageing
@@ -72,15 +82,26 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open **http://localhost:8501** in your browser.
+Open **http://localhost:8501** in your browser to view the **Landing Page**.
 
-### 5. Default Admin Login
+### 5. Default Super Admin Login
+Access the Super Admin login from the base domain (e.g., via the Admin button on the landing page) to manage tenants:
 | Field    | Value       |
 |----------|-------------|
 | Username | `admin`     |
 | Password | `admin@123` |
 
-> ⚠️ Change the admin password immediately after first login.
+> ⚠️ Change the super admin password immediately after first login.
+
+---
+
+## 🏢 Subdomains & Tenants
+
+The portal operates on a subdomain-per-tenant basis.
+- **Base Domain (`localhost:8501`)**: Displays the landing page and provides Super Admin login.
+- **Tenant Subdomain (`<tenant-slug>.localhost:8501`)**: Provides tenant-specific login, dashboard, reports, and sync functionality.
+
+*Note: For local testing, you may need to configure your `hosts` file to resolve `*.localhost` if your OS does not support it natively, though most modern browsers handle `*.localhost` out of the box.*
 
 ---
 
@@ -88,7 +109,8 @@ Open **http://localhost:8501** in your browser.
 
 1. Open Tally Prime and load your company
 2. Enable HTTP Server: `F12 → Advanced Configuration → Enable ODBC → Port 9000`
-3. In the portal, go to **Admin Panel → Sync** and click **Sync Now**
+3. Log in to a tenant portal as an Admin.
+4. Go to **Admin Panel → Sync** and click **Sync Now**
 
 The sync engine will:
 - Fetch P&L data (monthly, up to 3 years back on first run)
@@ -99,13 +121,14 @@ The sync engine will:
 
 ## 👥 User Roles
 
-| Role   | Dashboard | Reports | Downloads | Admin Panel | Sync |
-|--------|-----------|---------|-----------|-------------|------|
-| Admin  | ✅        | ✅      | ✅        | ✅          | ✅   |
-| Client | ✅        | ✅      | ✅ (if permitted) | ❌   | ❌   |
+| Role          | Domain scope       | Dashboard | Reports | Cash Flow | Downloads | Tenant Admin | SaaS Admin |
+|---------------|--------------------|-----------|---------|-----------|-----------|--------------|------------|
+| **Super Admin**| Base Domain        | ✅        | ✅      | ✅        | ✅        | ✅           | ✅         |
+| **Admin**      | Tenant Subdomain   | ✅        | ✅      | ✅        | ✅        | ✅           | ❌         |
+| **Client**     | Tenant Subdomain   | ✅        | ✅      | ✅        | ✅ (if enabled)| ❌      | ❌         |
 
-- Clients only see companies assigned to them
-- Excel/PPT download can be enabled/disabled per client
+- Tenant features (Dashboard, Reports, Cash Flow, Downloads, Sync) can be toggled per tenant by the Super Admin.
+- Clients only see companies assigned to them within their tenant environment.
 
 ---
 
@@ -124,21 +147,16 @@ The sync engine will:
 
 ---
 
-## 🗄️ Database Tables
+## 🗄️ Database Tables (Overview)
 
-| Table            | Description                        |
-|------------------|------------------------------------|
-| `companies`      | Tally company registry             |
-| `users`          | User accounts & permissions        |
-| `user_company_map` | Client ↔ Company access control  |
-| `pl_data`        | Monthly P&L ledger entries         |
-| `bs_data`        | Monthly Balance Sheet entries      |
-| `vouchers`       | Sales/Purchase voucher details     |
-| `stock_movement` | Monthly inventory movement         |
-| `stock_ageing`   | Stock ageing buckets               |
-| `ageing_data`    | Bills Receivable / Payable ageing  |
-| `outstanding`    | Debtor / Creditor outstanding      |
-| `sync_log`       | Sync audit trail                   |
+- `tenants`: Multi-tenant routing configurations (slug, features, status)
+- `companies`: Tally company registry (per tenant)
+- `users`: User accounts & roles (Super Admin, Admin, Client)
+- `user_company_map`: Client ↔ Company access control
+- `pl_data`, `bs_data`: Financial ledgers
+- `vouchers`, `stock_movement`, `stock_ageing`: Vouchers and Inventory
+- `ageing_data`, `outstanding`: Debtor/Creditor data
+- `sync_log`: Audit trails
 
 ---
 
