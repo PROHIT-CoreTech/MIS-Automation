@@ -377,14 +377,15 @@ def get_company_ids_for_user(user_id: int, role: str, tenant_id: int | None = No
 
 def get_available_months(company_id: int) -> list:
     """
-    Return sorted list of (year, month) tuples available in pl_data
+    Return sorted list of (year, month) tuples available in pl_data or bs_data
     for the given company. Used by the sidebar filter in app.py.
     """
     conn = get_conn()
     rows = conn.execute(
-        "SELECT DISTINCT year, month FROM pl_data "
-        "WHERE company_id=? ORDER BY year, month",
-        (company_id,)
+        "SELECT year, month FROM pl_data WHERE company_id=? "
+        "UNION SELECT year, month FROM bs_data WHERE company_id=? "
+        "ORDER BY year, month",
+        (company_id, company_id)
     ).fetchall()
     conn.close()
     return [(int(r['year']), int(r['month'])) for r in rows]

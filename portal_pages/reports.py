@@ -245,7 +245,7 @@ def show_reports(user):
             chart_layout(fig, height=320,
                         legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                     font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
@@ -261,7 +261,7 @@ def show_reports(user):
             chart_layout(fig2, height=320, barmode='group',
                         legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                     font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig2, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         # GP% and NP% trend
@@ -287,7 +287,7 @@ def show_reports(user):
                     legend=dict(orientation='h', font=dict(color=CHART_COLORS['text'], size=10)),
                     yaxis=dict(gridcolor=CHART_COLORS['grid'], color=CHART_COLORS['text'],
                                 ticksuffix='%'))
-        st.plotly_chart(fig3, width="stretch", config={'displayModeBar': False})
+        st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── TAB 2: DETAILED TABLE ─────────────────────────────
@@ -470,7 +470,7 @@ def show_reports(user):
         with col_title:
             st.markdown("**📋 P&L Detailed — Monthly Breakup**")
         with col_dl:
-            with st.popover("📥 Export", width="stretch"):
+            with st.popover("📥 Export", use_container_width=True):
                 st.caption(report_base_name)
                 excel_bytes = _generate_excel(
                     sections, group_totals, mo_labels, sel_months, from_lbl, to_lbl
@@ -480,7 +480,7 @@ def show_reports(user):
                     data=excel_bytes,
                     file_name=f"{report_base_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch",
+                    use_container_width=True,
                     key="dl_xlsx",
                 )
                 csv_df  = pd.DataFrame(table_rows)
@@ -492,7 +492,7 @@ def show_reports(user):
                     data=csv_bytes,
                     file_name=f"{report_base_name}.csv",
                     mime="text/csv",
-                    width="stretch",
+                    use_container_width=True,
                     key="dl_csv",
                 )
 
@@ -544,10 +544,10 @@ def show_reports(user):
 
 def _show_ageing_tab(company_id, party_type, label, icon):
     """Render ageing report tab inside reports page"""
-    import sqlite3, pandas as pd
+    import pandas as pd
     import plotly.graph_objects as go
 
-    DB = "data/mis_portal.db"
+    conn = get_conn()
 
     BUCKETS = [
         (0,   30,  "0-30 Days"),
@@ -575,7 +575,6 @@ def _show_ageing_tab(company_id, party_type, label, icon):
         return "1 Year+"
 
     # Load data
-    conn = sqlite3.connect(DB)
     rows = conn.execute("""
         SELECT party_name, bill_ref, bill_date, amount, days_overdue
         FROM ageing_data WHERE company_id=? AND party_type=?
@@ -640,7 +639,7 @@ def _show_ageing_tab(company_id, party_type, label, icon):
         ))
         chart_layout(fig, yaxis_title="Amount (Cr)", height=280,
                      margin=dict(t=20, b=10, l=40, r=20))
-        st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
 
     # Table
     st.markdown(f"**{icon} {label} — Party-wise Breakup**")
@@ -648,7 +647,7 @@ def _show_ageing_tab(company_id, party_type, label, icon):
     for col in BUCKET_COLS + ['Total']:
         display[col] = display[col].apply(lambda v: fmt(v) if isinstance(v,(int,float)) else v)
 
-    st.dataframe(display, width="stretch",
+    st.dataframe(display, use_container_width=True,
                  height=min(550, (len(display)+1)*35+38), hide_index=True)
 
     # Drill-down
@@ -664,7 +663,7 @@ def _show_ageing_tab(company_id, party_type, label, icon):
                 'Days Overdue': r[4],
                 'Bucket':    bucket(r[4]),
             } for r in sorted(bills, key=lambda x: x[4], reverse=True)])
-            st.dataframe(bd, width="stretch", hide_index=True)
+            st.dataframe(bd, use_container_width=True, hide_index=True)
             st.caption(f"Total: **{fmt(sum(r[3] for r in bills))}** | {len(bills)} bills")
 
     if last_sync:

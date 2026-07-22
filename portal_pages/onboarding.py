@@ -131,7 +131,7 @@ def show_onboarding():
             cvv = c3.text_input("CVV", type="password", placeholder="•••")
             
             st.write("")
-            if st.button("💸 Pay Now", type="primary", width="stretch"):
+            if st.button("💸 Pay Now", type="primary"):
                 card_clean = card_num.replace(" ", "").replace("-", "")
                 
                 if not cardholder or not card_num or not expiry or not cvv:
@@ -159,11 +159,11 @@ def show_onboarding():
             st.write("")
             col_back, col_next = st.columns(2)
             with col_back:
-                if st.button("⬅ Back", width="stretch"):
+                if st.button("⬅ Back"):
                     st.session_state.onboarding_step = 1
                     st.rerun()
             with col_next:
-                if st.button("Next ➡", type="primary", width="stretch"):
+                if st.button("Next ➡", type="primary"):
                     slug_clean = workspace_slug.lower().strip()
                     
                     # Check unique slug in database
@@ -195,11 +195,11 @@ def show_onboarding():
             st.write("")
             col_back, col_next = st.columns(2)
             with col_back:
-                if st.button("⬅ Back", width="stretch"):
+                if st.button("⬅ Back"):
                     st.session_state.onboarding_step = 2
                     st.rerun()
             with col_next:
-                if st.button("🚀 Register & Activate Workspace", type="primary", width="stretch"):
+                if st.button("🚀 Register & Activate Workspace", type="primary"):
                     if not admin_name or not admin_user or not admin_pass:
                         st.error("All admin fields are required.")
                     else:
@@ -234,7 +234,7 @@ def show_onboarding():
             st.write("")
             col_home, col_go = st.columns(2)
             with col_home:
-                if st.button("Return Home", width="stretch"):
+                if st.button("Return Home"):
                     st.session_state.pop('onboarding_step', None)
                     st.session_state.pop('onboarding_plan', None)
                     st.session_state.pop('onboarding_price', None)

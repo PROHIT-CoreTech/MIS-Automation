@@ -354,7 +354,7 @@ def show_dashboard(user):
             chart_layout(fig, height=300,
                         legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                     font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
@@ -372,7 +372,7 @@ def show_dashboard(user):
         if oh_grp:
             fig2 = donut_chart_figure(list(oh_grp.keys()), list(oh_grp.values()))
             fig2.update_layout(height=300)
-            st.plotly_chart(fig2, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No overhead data")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -398,7 +398,7 @@ def show_dashboard(user):
                 fillcolor='rgba(46,155,231,0.18)',
             ))
             chart_layout(fig3, height=280, showlegend=False)
-            st.plotly_chart(fig3, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No cash/bank data")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -420,7 +420,7 @@ def show_dashboard(user):
                         legend=dict(orientation='h', font=dict(color=CHART_COLORS['text'], size=10)),
                         yaxis=dict(gridcolor=CHART_COLORS['grid'], color=CHART_COLORS['text'],
                                     ticksuffix='%'))
-            st.plotly_chart(fig4, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig4, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No revenue data for trend")
         st.markdown('</div>', unsafe_allow_html=True)

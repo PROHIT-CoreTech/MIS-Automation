@@ -460,7 +460,7 @@ def show_cash_flow(user):
             chart_layout(fig, height=320, barmode='group',
                          legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                      font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         with col2:
@@ -478,7 +478,7 @@ def show_cash_flow(user):
             chart_layout(fig2, height=320,
                          legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                      font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig2, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
             st.markdown('</div>', unsafe_allow_html=True)
 
         # Waterfall for the latest month
@@ -499,7 +499,7 @@ def show_cash_flow(user):
                 totals=dict(marker=dict(color=CHART_COLORS['blue'])),
             ))
             chart_layout(fig3, height=340, showlegend=False)
-            st.plotly_chart(fig3, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
 
     # ── TAB 2: STATEMENT TABLE ──────────────────────────────
@@ -515,7 +515,7 @@ def show_cash_flow(user):
         with col_title:
             st.markdown("**📋 Cash Flow Statement — Monthly (Indirect Method)**")
         with col_dl:
-            with st.popover("📥 Export", width="stretch"):
+            with st.popover("📥 Export", use_container_width=True):
                 st.caption(report_base_name)
                 excel_bytes = _generate_cashflow_excel(
                     per_month, mo_labels, from_lbl, to_lbl, company_name
@@ -525,7 +525,7 @@ def show_cash_flow(user):
                     data=excel_bytes,
                     file_name=f"{report_base_name}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    width="stretch",
+                    use_container_width=True,
                     key="cf_dl_xlsx",
                 )
                 import pandas as pd
@@ -538,12 +538,7 @@ def show_cash_flow(user):
                     data=csv_bytes,
                     file_name=f"{report_base_name}.csv",
                     mime="text/csv",
-                    width="stretch",
-                    key="cf_dl_csv",
-                )
-
-        _render_html_table(table_rows, mo_labels)
-
+                        use_container_width=True,
 
 # ── STATEMENT ROW BUILDER (shared by on-screen table + CSV) ──────
 def _render_statement_rows(per_month, mo_labels):

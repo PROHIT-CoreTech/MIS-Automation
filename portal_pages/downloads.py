@@ -449,7 +449,7 @@ def show_downloads(user):
         )
         if can_download_excel(user):
             if st.button("⚙️ Generate Excel", key="gen_xlsx",
-                         width="stretch", type="primary"):
+                         type="primary"):
                 with st.spinner("Building Excel..."):
                     try:
                         xls_bytes = _generate_excel(
@@ -462,7 +462,7 @@ def show_downloads(user):
                             data=xls_bytes,
                             file_name=fname,
                             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                            width="stretch",
+                            use_container_width=True,
                             key="dl_xlsx_btn",
                         )
                         st.success("✅ Excel ready!")
@@ -479,7 +479,7 @@ def show_downloads(user):
         )
         if can_download_ppt(user):
             if st.button("⚙️ Generate PowerPoint", key="gen_pptx",
-                         width="stretch", type="primary"):
+                         type="primary"):
                 with st.spinner("Building PowerPoint..."):
                     try:
                         ppt_bytes = _generate_ppt(
@@ -492,7 +492,7 @@ def show_downloads(user):
                             data=ppt_bytes,
                             file_name=fname,
                             mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",
-                            width="stretch",
+                            use_container_width=True,
                             key="dl_pptx_btn",
                         )
                         st.success("✅ PowerPoint ready!")

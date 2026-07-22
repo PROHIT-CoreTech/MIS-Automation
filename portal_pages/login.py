@@ -132,13 +132,12 @@ def show_login(tenant_dict: dict | None = None, super_admin_only: bool = False) 
             password = st.text_input("Password", type="password",
                                      placeholder="Enter your password")
             submit   = st.form_submit_button("Sign In",
-                                             width="stretch",
                                              type="primary")
         st.markdown('</div>', unsafe_allow_html=True)
  
         # Show back to landing only if not inside a tenant subdomain
         if not tenant_dict:
-            if st.button("⬅ Back to Home", width="stretch", key="back_to_landing"):
+            if st.button("⬅ Back to Home", key="back_to_landing"):
                 st.session_state.view = 'landing'
                 st.rerun()
  

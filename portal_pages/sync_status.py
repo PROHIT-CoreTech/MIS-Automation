@@ -52,7 +52,7 @@ def show_sync(user):
         st.markdown("### Sync Data from Tally")
         st.caption("This will fetch all companies from Tally and sync their data to the portal.")
     with col2:
-        sync_btn = st.button("🔄 Sync Now", type="primary", width="stretch")
+        sync_btn = st.button("🔄 Sync Now", type="primary")
 
     if sync_btn:
         from sync.sync_engine import sync_all

@@ -134,7 +134,10 @@ def _render_date_filter(company_id: int) -> None:
         st.session_state[f"{ck}_from"]  = (
             mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
         )
+    if (f"{ck}_to" not in st.session_state or
+            st.session_state.get(f"{ck}_to") not in mo_opts):
         st.session_state[f"{ck}_to"]    = mo_opts[-1]
+    if f"{ck}_quick" not in st.session_state:
         st.session_state[f"{ck}_quick"] = ""
 
     st.markdown("""
@@ -172,7 +175,7 @@ def _render_date_filter(company_id: int) -> None:
         key=f"{ck}_ts",
     )
 
-    if st.button("🔄 Reset", width="stretch", key="gf_reset"):
+    if st.button("🔄 Reset", key="gf_reset"):
         for k in [f"{ck}_from", f"{ck}_to", f"{ck}_quick",
                   f"{ck}_qs",   f"{ck}_fs",  f"{ck}_ts"]:
             st.session_state.pop(k, None)
@@ -293,7 +296,6 @@ def show_sidebar(real: dict, user: dict) -> None:
             is_active = st.session_state.page == key
             if st.button(
                 label, key=f"nav_{key}",
-                width="stretch",
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state.page = key
@@ -302,7 +304,7 @@ def show_sidebar(real: dict, user: dict) -> None:
         # 4. Impersonation banner
         if st.session_state.impersonating:
             st.warning(f"👁 Viewing as:\n**{user.get('username')}**")
-            if st.button("↩️ Exit View", width="stretch"):
+            if st.button("↩️ Exit View"):
                 st.session_state.impersonating = None
                 st.session_state.page = 'dashboard'
                 st.rerun()

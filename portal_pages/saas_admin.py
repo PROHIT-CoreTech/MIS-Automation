@@ -109,7 +109,7 @@ def show_saas_admin():
             )
             
             # Use config to hide the modebar for a cleaner look
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No active subscriptions to display revenue.")
             
@@ -126,7 +126,7 @@ def show_saas_admin():
                     "Monthly Rate (₹)": f"₹{price:,.0f}" if t['is_active'] else "₹0 (Suspended)",
                     "Status": "🟢 Active" if t['is_active'] else "🔴 Suspended"
                 })
-            st.dataframe(pd.DataFrame(payment_data), width="stretch", hide_index=True)
+            st.dataframe(pd.DataFrame(payment_data), use_container_width=True, hide_index=True)
         else:
             st.info("No tenants registered.")
 
