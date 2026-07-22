@@ -11,11 +11,18 @@ def get_current_subdomain() -> str | None:
       - http://localhost:8501/ -> None
     """
     try:
-        url = st.context.url
-        if not url:
-            return None
-        # Extract host and remove port, e.g. 'hooli.localhost:8501' -> 'hooli.localhost'
-        host = urlparse(url).netloc.split(':')[0]
+        host = ""
+        if hasattr(st, "context") and hasattr(st.context, "headers"):
+            host_header = st.context.headers.get("Host")
+            if host_header:
+                host = host_header.split(':')[0]
+        
+        if not host:
+            url = st.context.url
+            if not url:
+                return None
+            host = urlparse(url).netloc.split(':')[0]
+            
         parts = host.split('.')
         
         if 'localhost' in host:
