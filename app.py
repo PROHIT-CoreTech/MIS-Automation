@@ -220,9 +220,49 @@ else:
             show_onboarding()
         else:
             from portal_pages.login import show_login
-            # Allow all users to log in on the base domain for the Render demo
-            show_login(super_admin_only=False)
+            import os
+            is_render = os.environ.get('RENDER') == 'true'
+            # Allow all users to log in on the base domain ONLY on Render
+            show_login(super_admin_only=not is_render)
     else:
         # Logged-in session on base domain
-        # Render demo: all users just view the app directly on the base domain
-        show_app()
+        import os
+        is_render = os.environ.get('RENDER') == 'true'
+        if st.session_state.user.get('role') == 'super_admin' or is_render:
+            show_app()
+        else:
+            # Regular user accessed base domain, redirect them to their subdomain link!
+            user_tenant = st.session_state.user.get('tenant')
+            if user_tenant:
+                slug = user_tenant['slug']
+                st.markdown(f"""
+                    <div style='text-align:center; padding:100px 20px;'>
+                        <h2 style='color:#f1f5f9; font-weight:700;'>Redirecting to Your Workspace Portal</h2>
+                        <p style='color:#94a3b8; margin:20px 0;'>
+                            Please use your organization's custom subdomain link to access the dashboard:
+                        </p>
+                        <a href='http://{slug}.localhost:8501/' target='_self' style='
+                            display:inline-block; background:#6366f1; color:white; 
+                            padding:12px 24px; border-radius:12px; text-decoration:none; font-weight:600;
+                            box-shadow: 0 4px 20px rgba(99,102,241,0.3); margin-bottom: 24px;'>
+                            Go to {user_tenant['name']} Portal
+                        </a>
+                        <br/>
+                    </div>
+                """, unsafe_allow_html=True)
+                
+                # Render manual logout button
+                if st.button("🚪 Log Out", key="base_redirect_logout"):
+                    from core.auth import delete_session
+                    if "session" in st.query_params:
+                        delete_session(st.query_params["session"])
+                        del st.query_params["session"]
+                        
+                    st.session_state.user = None
+                    st.session_state.impersonating = None
+                    st.session_state.page = 'dashboard'
+                    st.session_state.view = 'landing'
+                    st.rerun()
+            else:
+                st.session_state.user = None
+                st.rerun()
