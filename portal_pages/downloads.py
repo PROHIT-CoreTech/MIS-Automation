@@ -7,18 +7,21 @@ import streamlit as st
 import pandas as pd
 from datetime import date, datetime
 from core.auth      import can_download_excel, can_download_ppt, is_admin
-from core.db        import get_conn as _get_conn
 from core.constants import MONTHS, TALLY_SECTION
 
 
 def _load_pl_data(company_id: int, from_yr: int, from_mo: int,
                   to_yr: int, to_mo: int):
     """Return P&L rows and selected month labels."""
-    conn = _get_conn()
-    avail = conn.execute(
-        "SELECT DISTINCT year, month FROM pl_data "
-        "WHERE company_id=? ORDER BY year, month", (company_id,)
-    ).fetchall()
+    from core.models import PLData
+    from bson import ObjectId
+    pipeline = [
+        {"$match": {"company": ObjectId(company_id)}},
+        {"$group": {"_id": {"year": "$year", "month": "$month"}}},
+        {"$sort": {"_id.year": 1, "_id.month": 1}}
+    ]
+    avail = list(PLData.objects().aggregate(pipeline))
+    avail = [{'year': r['_id']['year'], 'month': r['_id']['month']} for r in avail]
 
     sel_months = [
         (int(r['year']), int(r['month'])) for r in avail
@@ -26,16 +29,22 @@ def _load_pl_data(company_id: int, from_yr: int, from_mo: int,
     ]
     mo_labels = [f"{MONTHS[m-1]}-{str(y)[2:]}" for y, m in sel_months]
 
-    rows = conn.execute("""
-        SELECT ledger_name, tally_group, mis_group, year, month, net
-        FROM pl_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-        ORDER BY tally_group, ledger_name, year, month
-    """, (company_id, from_yr, from_yr, from_mo,
-          to_yr, to_yr, to_mo)).fetchall()
-    conn.close()
+    from mongoengine import Q
+    q_from = Q(year__gt=from_yr) | (Q(year=from_yr) & Q(month__gte=from_mo))
+    q_to = Q(year__lt=to_yr) | (Q(year=to_yr) & Q(month__lte=to_mo))
+    
+    pl_docs = PLData.objects(Q(company=company_id) & q_from & q_to).order_by('tally_group', 'ledger_name', 'year', 'month')
+    
+    rows = []
+    for doc in pl_docs:
+        rows.append({
+            'ledger_name': doc.ledger_name,
+            'tally_group': doc.tally_group,
+            'mis_group': doc.mis_group,
+            'year': doc.year,
+            'month': doc.month,
+            'net': doc.net
+        })
     return rows, mo_labels, sel_months
 
 
@@ -449,7 +458,7 @@ def show_downloads(user):
         )
         if can_download_excel(user):
             if st.button("⚙️ Generate Excel", key="gen_xlsx",
-                         type="primary"):
+                         use_container_width=True, type="primary"):
                 with st.spinner("Building Excel..."):
                     try:
                         xls_bytes = _generate_excel(
@@ -479,7 +488,7 @@ def show_downloads(user):
         )
         if can_download_ppt(user):
             if st.button("⚙️ Generate PowerPoint", key="gen_pptx",
-                         type="primary"):
+                         use_container_width=True, type="primary"):
                 with st.spinner("Building PowerPoint..."):
                     try:
                         ppt_bytes = _generate_ppt(

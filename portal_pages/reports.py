@@ -4,14 +4,12 @@ Monthly breakup with all ledgers, Chart + Table format
 """
 import streamlit as st
 from datetime import date
-from core.db import get_conn
 from core.auth import is_admin
 from core.theme import chart_layout, CHART_COLORS, CHART_PALETTE
 from core.constants import MONTHS, TALLY_SECTION, SECTION_ORDER
 
 
 def show_reports(user):
-    conn = get_conn()
 
     # ── Read from shared sidebar filter (set by app.py) ──────
     company_id   = st.session_state.get('global_company_id')
@@ -24,23 +22,26 @@ def show_reports(user):
     to_mo        = st.session_state.get('global_to_mo')
 
     if not company_id or not from_lbl:
-        conn.close()
         st.info("Select a company and date range from the sidebar to view reports.")
         return
 
     if (from_yr, from_mo) > (to_yr, to_mo):
-        conn.close()
         st.error("'From' cannot be after 'To'.")
         return
 
+    from core.models import PLData
+    
     # Selected months list
-    avail = conn.execute(
-        "SELECT DISTINCT year, month FROM pl_data "
-        "WHERE company_id=? ORDER BY year, month", (company_id,)
-    ).fetchall()
+    from bson import ObjectId
+    pipeline = [
+        {"$match": {"company": ObjectId(company_id)}},
+        {"$group": {"_id": {"year": "$year", "month": "$month"}}},
+        {"$sort": {"_id.year": 1, "_id.month": 1}}
+    ]
+    avail_agg = list(PLData.objects().aggregate(pipeline))
+    avail = [{'year': r['_id']['year'], 'month': r['_id']['month']} for r in avail_agg]
 
     if not avail:
-        conn.close()
         st.info("No data synced yet. Please sync from Tally first.")
         return
 
@@ -63,16 +64,22 @@ def show_reports(user):
     st.markdown("---")
 
     # ── FETCH DATA ─────────────────────────────────────────
-    pl_rows = conn.execute("""
-        SELECT ledger_name, tally_group, mis_group, year, month, net
-        FROM pl_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-        ORDER BY tally_group, ledger_name, year, month
-    """, (company_id, from_yr, from_yr, from_mo,
-          to_yr, to_yr, to_mo)).fetchall()
-    conn.close()
+    from mongoengine import Q
+    q_from = Q(year__gt=from_yr) | (Q(year=from_yr) & Q(month__gte=from_mo))
+    q_to = Q(year__lt=to_yr) | (Q(year=to_yr) & Q(month__lte=to_mo))
+    
+    pl_docs = PLData.objects(Q(company=company_id) & q_from & q_to).order_by('tally_group', 'ledger_name', 'year', 'month')
+    
+    pl_rows = []
+    for doc in pl_docs:
+        pl_rows.append({
+            'ledger_name': doc.ledger_name,
+            'tally_group': doc.tally_group,
+            'mis_group': doc.mis_group,
+            'year': doc.year,
+            'month': doc.month,
+            'net': doc.net
+        })
 
     if not pl_rows:
         st.info("No data for selected period.")
@@ -547,7 +554,6 @@ def _show_ageing_tab(company_id, party_type, label, icon):
     import pandas as pd
     import plotly.graph_objects as go
 
-    conn = get_conn()
 
     BUCKETS = [
         (0,   30,  "0-30 Days"),
@@ -575,20 +581,15 @@ def _show_ageing_tab(company_id, party_type, label, icon):
         return "1 Year+"
 
     # Load data
-    rows = conn.execute("""
-        SELECT party_name, bill_ref, bill_date, amount, days_overdue
-        FROM ageing_data WHERE company_id=? AND party_type=?
-        ORDER BY party_name, days_overdue DESC
-    """, (company_id, party_type)).fetchall()
-    last_sync = conn.execute(
-        "SELECT MAX(synced_at) FROM ageing_data WHERE company_id=? AND party_type=?",
-        (company_id, party_type)
-    ).fetchone()[0]
-    conn.close()
+    from core.models import AgeingData
+    docs = AgeingData.objects(company=company_id, party_type=party_type).order_by('party_name', '-days_overdue')
+    rows = [(d.party_name, d.bill_ref, d.bill_date, d.amount, d.days_overdue) for d in docs]
+    
+    last_doc = AgeingData.objects(company=company_id, party_type=party_type).order_by('-synced_at').first()
+    last_sync = last_doc.synced_at if last_doc else None
 
     if not rows:
         st.info(f"No {label} data found. Run sync from Tally first.")
-        st.code("python sync_ageing.py", language="bash")
         return
 
     # Build party-wise buckets

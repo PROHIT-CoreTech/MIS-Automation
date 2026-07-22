@@ -2,7 +2,6 @@
 import streamlit as st
 import requests
 import re
-from core.db import get_conn
 
 def test_tally(tally_url: str):
     try:
@@ -18,22 +17,24 @@ def test_tally(tally_url: str):
 def show_sync(user):
     st.markdown("## 🔄 Sync Status")
 
-    tenant_id = user.get('tenant_id', 1)
+    tenant_id = user.get('tenant_id')
+    
+    # If there is no tenant ID, return or assign default
+    if not tenant_id:
+        from core.models import Tenant
+        default_tenant = Tenant.objects(slug='default').first()
+        tenant_id = str(default_tenant.id) if default_tenant else None
     
     # Fetch current tally_url for this tenant
-    conn = get_conn()
-    t_row = conn.execute("SELECT tally_url FROM tenants WHERE id=?", (tenant_id,)).fetchone()
-    current_tally_url = t_row['tally_url'] if t_row and t_row['tally_url'] else "http://localhost:9000"
-    conn.close()
+    from core.models import Tenant
+    tenant = Tenant.objects(id=tenant_id).first()
+    current_tally_url = tenant.tally_url if tenant and tenant.tally_url else "http://localhost:9000"
     
     # Allow user to update Tally URL
     with st.expander("⚙️ Connection Settings", expanded=False):
         new_url = st.text_input("Tally Server URL", value=current_tally_url, help="Change this if your Tally Prime is hosted on a remote server.")
         if st.button("Update URL"):
-            conn = get_conn()
-            conn.execute("UPDATE tenants SET tally_url=? WHERE id=?", (new_url, tenant_id))
-            conn.commit()
-            conn.close()
+            Tenant.objects(id=tenant_id).update(set__tally_url=new_url)
             st.success("Tally URL updated successfully!")
             current_tally_url = new_url
             st.rerun()
@@ -52,7 +53,7 @@ def show_sync(user):
         st.markdown("### Sync Data from Tally")
         st.caption("This will fetch all companies from Tally and sync their data to the portal.")
     with col2:
-        sync_btn = st.button("🔄 Sync Now", type="primary")
+        sync_btn = st.button("🔄 Sync Now", type="primary", use_container_width=True)
 
     if sync_btn:
         from sync.sync_engine import sync_all
@@ -86,21 +87,15 @@ def show_sync(user):
 
     st.divider()
     st.markdown("### Company Sync Status")
-    conn = get_conn()
-    cos  = conn.execute("""
-        SELECT tally_name, sync_status, last_sync, last_full_sync
-        FROM companies 
-        WHERE tenant_id = ?
-        ORDER BY tally_name
-    """, (user.get('tenant_id', 1),)).fetchall()
-    conn.close()
+    from core.models import Company
+    cos = Company.objects(tenant=user.get('tenant_id')).order_by('tally_name')
 
     if not cos:
         st.info("No companies synced yet. Click **🔄 Sync Now** above.")
     else:
         for c in cos:
-            icon = ("🟢" if c['sync_status']=='ok'
-                    else "🔴" if c['sync_status']=='error' else "⏳")
+            icon = ("🟢" if c.sync_status=='ok'
+                    else "🔴" if c.sync_status=='error' else "⏳")
             col1, col2 = st.columns([4,2])
-            col1.write(f"{icon} **{c['tally_name']}**")
-            col2.caption(c['last_sync'] or 'Never')
+            col1.write(f"{icon} **{c.tally_name}**")
+            col2.caption(c.last_sync or 'Never')

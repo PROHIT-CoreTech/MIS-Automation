@@ -207,7 +207,7 @@ def show_landing() -> None:
     with col_login:
         st.write("") # Spacer
         st.write("")
-        if st.button("🔑 Super Admin Access", key="top_login_btn"):
+        if st.button("🔑 Super Admin Access", key="top_login_btn", use_container_width=True):
             st.session_state.view = 'login'
             st.rerun()
 
@@ -299,7 +299,7 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Bronze", key="p_bronze_btn"):
+        if st.button("Choose Bronze", key="p_bronze_btn", use_container_width=True):
             st.session_state.onboarding_plan = "Bronze"
             st.session_state.onboarding_price = "₹1,999/mo"
             st.session_state.onboarding_features = ["dashboard", "downloads"]
@@ -321,7 +321,7 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Silver", key="p_silver_btn", type="primary"):
+        if st.button("Choose Silver", key="p_silver_btn", type="primary", use_container_width=True):
             st.session_state.onboarding_plan = "Silver"
             st.session_state.onboarding_price = "₹4,999/mo"
             st.session_state.onboarding_features = ["dashboard", "reports", "downloads", "sync"]
@@ -343,7 +343,7 @@ def show_landing() -> None:
                 </ul>
             </div>
         """, unsafe_allow_html=True)
-        if st.button("Choose Gold", key="p_gold_btn"):
+        if st.button("Choose Gold", key="p_gold_btn", use_container_width=True):
             st.session_state.onboarding_plan = "Gold"
             st.session_state.onboarding_price = "₹9,999/mo"
             st.session_state.onboarding_features = ["dashboard", "reports", "cash_flow", "downloads", "sync"]

@@ -6,7 +6,6 @@ import re
 import logging
 import requests
 from datetime import datetime, timedelta
-from core.db        import get_conn
 from core.config    import TALLY_URL
 from core.constants import MONTHS, SKIP_TALLY_GROUPS, COGS_GROUPS
 from core.utils     import month_label
@@ -104,53 +103,30 @@ def _sf(v):
         return 0.0
 
 # ── MAIN SYNC ──────────────────────────────────────────────
-def sync_company_now(company_id: int, tally_url: str | None = None) -> dict:
-    """
-    Lightweight on-demand sync for a SINGLE company (as opposed to
-    sync_all(), which loops every company — too slow to call on every
-    page load). Used by portal_pages/sidebar.py's auto-sync-on-refresh
-    hook, so simply reloading a page can pick up new/back-dated Tally
-    entries without the user visiting Sync Status and clicking manually.
-
-    Reuses the exact same _sync_company() used by sync_all(), so the
-    fiscal-year-lookback fix (see _sync_company / _lookback_start's
-    docstrings) applies here too.
-    """
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT tally_name, last_sync FROM companies WHERE id=?", (company_id,)
-    ).fetchone()
-    if not row:
-        conn.close()
+def sync_company_now(company_id: str, tally_url: str | None = None) -> dict:
+    from core.models import Company
+    company = Company.objects(id=company_id).first()
+    if not company:
         return {'status': 'error', 'message': 'Company not found'}
 
-    name, last_sync = row['tally_name'], row['last_sync']
+    name, last_sync = company.tally_name, company.last_sync
     try:
-        records = _sync_company(company_id, name, last_sync, conn, tally_url)
-        conn.execute("""
-            UPDATE companies SET sync_status='ok',
-            last_sync=datetime('now') WHERE id=?
-        """, (company_id,))
-        conn.commit()
-        conn.close()
+        records = _sync_company(company_id, name, last_sync, tally_url)
+        company.update(set__sync_status='ok', set__last_sync=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
         return {'status': 'ok', 'records': records}
     except Exception as e:
         log.error("[AutoSync] Error syncing %s: %s", name, e, exc_info=True)
-        conn.execute(
-            "UPDATE companies SET sync_status='error' WHERE id=?", (company_id,)
-        )
-        conn.commit()
-        conn.close()
+        company.update(set__sync_status='error')
         return {'status': 'error', 'message': str(e)}
 
 
-def sync_all(progress_callback=None, tenant_id: int = 1, tally_url: str | None = None) -> dict:
+def sync_all(progress_callback=None, tenant_id: str = "1", tally_url: str | None = None) -> dict:
+    from core.models import Company
     companies = get_all_companies(tally_url)
     if not companies:
         return {'status': 'error',
                 'message': 'No companies found. Open a company in Tally first.'}
 
-    conn    = get_conn()
     results = []
 
     for idx, co in enumerate(companies):
@@ -158,37 +134,27 @@ def sync_all(progress_callback=None, tenant_id: int = 1, tally_url: str | None =
         if progress_callback:
             progress_callback(name, idx+1, len(companies))
 
-        conn.execute("""
-            INSERT INTO companies (tally_name, display_name, sync_status, tenant_id)
-            VALUES (?,?,'syncing',?)
-            ON CONFLICT(tenant_id, tally_name) DO UPDATE SET
-                display_name=excluded.display_name, sync_status='syncing'
-        """, (name, name, tenant_id))
-        conn.commit()
-
-        row       = conn.execute(
-            "SELECT id, last_sync FROM companies WHERE tenant_id=? AND tally_name=?", (tenant_id, name)
-        ).fetchone()
-        cid       = row['id']
-        last_sync = row['last_sync']
+        # Upsert company
+        company = Company.objects(tenant=tenant_id, tally_name=name).first()
+        if company:
+            company.update(set__display_name=name, set__sync_status='syncing')
+        else:
+            company = Company(tenant=tenant_id, tally_name=name, display_name=name, sync_status='syncing')
+            company.save()
+            
+        company.reload()
+        cid = str(company.id)
+        last_sync = company.last_sync
 
         try:
-            records = _sync_company(cid, name, last_sync, conn, tally_url)
-            conn.execute("""
-                UPDATE companies SET sync_status='ok',
-                last_sync=datetime('now') WHERE id=?
-            """, (cid,))
-            conn.commit()
+            records = _sync_company(cid, name, last_sync, tally_url)
+            company.update(set__sync_status='ok', set__last_sync=datetime.now().strftime('%Y-%m-%d %H:%M:%S'))
             results.append({'company': name, 'status': 'ok', 'records': records})
         except Exception as e:
             log.error("[Sync] Error %s: %s", name, e, exc_info=True)
-            conn.execute(
-                "UPDATE companies SET sync_status='error' WHERE id=?", (cid,)
-            )
-            conn.commit()
+            company.update(set__sync_status='error')
             results.append({'company': name, 'status': 'error', 'error': str(e)})
 
-    conn.close()
     ok = sum(1 for r in results if r.get('status') == 'ok')
     return {'status': 'ok', 'synced': ok, 'total': len(results), 'results': results}
 
@@ -212,32 +178,26 @@ def _lookback_start(now: datetime) -> datetime:
     return datetime(previous_fy_start_year, 4, 1)
 
 
-def _sync_company(company_id, company_name, last_sync, conn, tally_url: str | None = None) -> int:
+def _sync_company(company_id, company_name, last_sync, tally_url: str | None = None) -> int:
     now = datetime.now()
     if last_sync is None:
-        # Brand-new company: pull full history.
         start = datetime(now.year - 3, 4, 1)
     else:
-        # INCREMENTAL SYNC — always re-fetch from 1-Apr of the PREVIOUS
-        # fiscal year (not just the last-synced month, and not just the
-        # current FY — see _lookback_start's docstring for why).
-        #
-        # Every write here is an UPSERT keyed on
-        # (company_id, ledger_name, year, month) — see _sync_pl_monthly
-        # / _sync_bs_monthly — so re-fetching already-correct months is
-        # perfectly safe; it just overwrites with Tally's current
-        # figures rather than duplicating rows.
         lookback = _lookback_start(now)
-        last_dt  = datetime.fromisoformat(last_sync)
+        try:
+            last_dt  = datetime.fromisoformat(last_sync)
+        except ValueError:
+            last_dt = datetime.strptime(last_sync, '%Y-%m-%d %H:%M:%S')
         start    = min(lookback, last_dt.replace(day=1))
 
     records  = 0
-    records += _sync_pl_monthly(company_id, company_name, start, now, conn, tally_url)
-    records += _sync_bs_monthly(company_id, company_name, start, now, conn, tally_url)
-    records += _sync_ageing_company(company_id, company_name, conn, tally_url)
+    records += _sync_pl_monthly(company_id, company_name, start, now, tally_url)
+    records += _sync_bs_monthly(company_id, company_name, start, now, tally_url)
+    records += _sync_ageing_company(company_id, company_name, tally_url)
     return records
 
-def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url: str | None = None) -> int:
+def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, tally_url: str | None = None) -> int:
+    from core.models import PLData
     records = 0
     cur     = start_dt.replace(day=1)
 
@@ -257,30 +217,39 @@ def _sync_pl_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url
 
             for r in rows:
                 tg, mg = get_mis_group(r['ledger'], r.get('tally_group', ''))
-                conn.execute("""
-                    INSERT INTO pl_data
-                        (company_id, ledger_name, tally_group, mis_group,
-                         year, month, month_label, debit, credit, net)
-                    VALUES (?,?,?,?,?,?,?,?,?,?)
-                    ON CONFLICT(company_id, ledger_name, year, month)
-                    DO UPDATE SET
-                        tally_group=excluded.tally_group,
-                        mis_group=excluded.mis_group,
-                        debit=excluded.debit, credit=excluded.credit,
-                        net=excluded.net, updated_at=datetime('now')
-                """, (company_id, r['ledger'], tg, mg,
-                      cur.year, cur.month,
-                      month_label(cur.year, cur.month),
-                      r.get('debit', 0), r.get('credit', 0), r.get('net', 0)))
+                
+                doc = PLData.objects(company=company_id, ledger_name=r['ledger'], year=cur.year, month=cur.month).first()
+                if doc:
+                    doc.update(
+                        set__tally_group=tg,
+                        set__mis_group=mg,
+                        set__debit=r.get('debit', 0),
+                        set__credit=r.get('credit', 0),
+                        set__net=r.get('net', 0)
+                    )
+                else:
+                    PLData(
+                        company=company_id,
+                        ledger_name=r['ledger'],
+                        tally_group=tg,
+                        mis_group=mg,
+                        year=cur.year,
+                        month=cur.month,
+                        month_label=month_label(cur.year, cur.month),
+                        debit=r.get('debit', 0),
+                        credit=r.get('credit', 0),
+                        net=r.get('net', 0)
+                    ).save()
+                
                 records += 1
-            conn.commit()
         except Exception as e:
             log.error("[Sync] P&L %s %s: %s", company_name, cur.strftime('%b-%y'), e, exc_info=True)
 
         cur = nxt
     return records
 
-def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url: str | None = None) -> int:
+def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, tally_url: str | None = None) -> int:
+    from core.models import BSData
     records = 0
     cur     = start_dt.replace(day=1)
 
@@ -299,21 +268,25 @@ def _sync_bs_monthly(company_id, company_name, start_dt, end_dt, conn, tally_url
             rows = parse_bs_xml(xml_text)
             for r in rows:
                 tg, mg = get_mis_group(r['ledger'], r.get('tally_group', ''))
-                conn.execute("""
-                    INSERT INTO bs_data
-                        (company_id, ledger_name, tally_group, mis_group,
-                         year, month, month_label, closing_bal)
-                    VALUES (?,?,?,?,?,?,?,?)
-                    ON CONFLICT(company_id, ledger_name, year, month)
-                    DO UPDATE SET
-                        closing_bal=excluded.closing_bal,
-                        updated_at=datetime('now')
-                """, (company_id, r['ledger'], tg, mg,
-                      cur.year, cur.month,
-                      month_label(cur.year, cur.month),
-                      r.get('balance', 0)))
+                
+                doc = BSData.objects(company=company_id, ledger_name=r['ledger'], year=cur.year, month=cur.month).first()
+                if doc:
+                    doc.update(
+                        set__closing_bal=r.get('balance', 0)
+                    )
+                else:
+                    BSData(
+                        company=company_id,
+                        ledger_name=r['ledger'],
+                        tally_group=tg,
+                        mis_group=mg,
+                        year=cur.year,
+                        month=cur.month,
+                        month_label=month_label(cur.year, cur.month),
+                        closing_bal=r.get('balance', 0)
+                    ).save()
+                
                 records += 1
-            conn.commit()
         except Exception as e:
             log.error("[Sync] BS %s %s: %s", company_name, cur.strftime('%b-%y'), e, exc_info=True)
 
@@ -388,7 +361,8 @@ def _parse_bills(xml_text: str) -> list:
     return bills
 
 
-def _sync_ageing_company(company_id: int, company_name: str, conn, tally_url: str | None = None) -> int:
+def _sync_ageing_company(company_id: str, company_name: str, tally_url: str | None = None) -> int:
+    from core.models import AgeingData
     """
     Sync Bills Receivable (customer) and Bills Payable (vendor) ageing
     data from Tally for the given company.
@@ -411,20 +385,20 @@ def _sync_ageing_company(company_id: int, company_name: str, conn, tally_url: st
             log.info("[Ageing] %s | %s: %d bills", company_name, party_type, len(bills))
 
             # Clear old data then insert fresh
-            conn.execute(
-                "DELETE FROM ageing_data WHERE company_id=? AND party_type=?",
-                (company_id, party_type)
-            )
+            AgeingData.objects(company=company_id, party_type=party_type).delete()
+            
             for b in bills:
-                conn.execute("""
-                    INSERT INTO ageing_data
-                        (company_id, party_type, party_name, bill_ref,
-                         bill_date, due_date, amount, days_overdue, synced_at)
-                    VALUES (?,?,?,?,?,?,?,?,?)
-                """, (company_id, party_type, b['party_name'], b['bill_ref'],
-                      b['bill_date'], b['due_date'], b['amount'],
-                      b['days_overdue'], synced_at))
-            conn.commit()
+                AgeingData(
+                    company=company_id,
+                    party_type=party_type,
+                    party_name=b['party_name'],
+                    bill_ref=b['bill_ref'],
+                    bill_date=b['bill_date'],
+                    due_date=b['due_date'],
+                    amount=b['amount'],
+                    days_overdue=b['days_overdue'],
+                    synced_at=synced_at
+                ).save()
             total += len(bills)
 
         except Exception as e:

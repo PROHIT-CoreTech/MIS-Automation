@@ -10,7 +10,8 @@ from datetime import date as _date
 import streamlit as st
 
 from core.auth  import is_admin
-from core.db    import get_conn, get_available_months
+from core.db    import get_available_months
+from core.models import Company, Tenant
 from core.theme import brand_mark
 from core.utils import build_mo_opts, build_yr_mo_map, get_fiscal_year, get_last_fiscal_year
 
@@ -47,7 +48,7 @@ def _apply_quick_select(quick: str, mo_opts: list, ck: str) -> None:
         st.session_state[f"{ck}_to"] = mo_opts[-1]
 
 
-def _render_company_selector(user: dict, conn) -> int | None:
+def _render_company_selector(user: dict) -> str | None:
     """Render company selector and return selected company_id."""
     st.markdown("""
         <p style='font-size:0.72rem;font-weight:700;letter-spacing:0.10em;
@@ -57,16 +58,9 @@ def _render_company_selector(user: dict, conn) -> int | None:
 
     if is_admin(user):
         if user.get('role') == 'super_admin':
-            all_cos = conn.execute(
-                "SELECT id, display_name FROM companies "
-                "WHERE is_active=1 ORDER BY display_name"
-            ).fetchall()
+            all_cos = Company.objects(is_active=True).order_by('display_name')
         else:
-            all_cos = conn.execute(
-                "SELECT id, display_name FROM companies "
-                "WHERE is_active=1 AND tenant_id=? ORDER BY display_name",
-                (user.get('tenant_id'),)
-            ).fetchall()
+            all_cos = Company.objects(is_active=True, tenant=user.get('tenant_id')).order_by('display_name')
             
         if not all_cos:
             st.session_state['global_company_id']   = None
@@ -74,7 +68,7 @@ def _render_company_selector(user: dict, conn) -> int | None:
             st.caption("No companies synced.")
             return None
 
-        co_map  = {c['display_name']: c['id'] for c in all_cos}
+        co_map  = {c.display_name: str(c.id) for c in all_cos}
         prev    = st.session_state.get('global_company_name', '')
         def_idx = list(co_map.keys()).index(prev) if prev in co_map else 0
         sel = st.selectbox(
@@ -91,10 +85,8 @@ def _render_company_selector(user: dict, conn) -> int | None:
         ids = user.get('company_ids', [])
         cid = ids[0] if ids else None
         if cid:
-            row   = conn.execute(
-                "SELECT display_name FROM companies WHERE id=?", (cid,)
-            ).fetchone()
-            cname = row['display_name'] if row else ''
+            company = Company.objects(id=cid).first()
+            cname = company.display_name if company else ''
         else:
             cname = ''
         st.session_state['global_company_id']   = cid
@@ -108,7 +100,7 @@ def _render_company_selector(user: dict, conn) -> int | None:
         return cid
 
 
-def _render_date_filter(company_id: int) -> None:
+def _render_date_filter(company_id: str) -> None:
     """Render the date-range filter for a selected company."""
     avail = get_available_months(company_id)
     if not avail:
@@ -175,7 +167,7 @@ def _render_date_filter(company_id: int) -> None:
         key=f"{ck}_ts",
     )
 
-    if st.button("🔄 Reset", key="gf_reset"):
+    if st.button("🔄 Reset", use_container_width=True, key="gf_reset"):
         for k in [f"{ck}_from", f"{ck}_to", f"{ck}_quick",
                   f"{ck}_qs",   f"{ck}_fs",  f"{ck}_ts"]:
             st.session_state.pop(k, None)
@@ -237,13 +229,10 @@ def show_sidebar(real: dict, user: dict) -> None:
                 if cid:
                     try:
                         # Fetch the tenant's remote Tally URL first
-                        c = get_conn()
-                        row = c.execute(
-                            "SELECT t.tally_url FROM tenants t JOIN companies c ON t.id = c.tenant_id WHERE c.id = ?", 
-                            (cid,)
-                        ).fetchone()
-                        t_url = row['tally_url'] if row and row['tally_url'] else None
-                        c.close()
+                        company = Company.objects(id=cid).first()
+                        t_url = None
+                        if company and company.tenant:
+                            t_url = company.tenant.tally_url
 
                         from sync.sync_engine import sync_company_now
                         sync_company_now(cid, t_url)
@@ -296,6 +285,7 @@ def show_sidebar(real: dict, user: dict) -> None:
             is_active = st.session_state.page == key
             if st.button(
                 label, key=f"nav_{key}",
+                use_container_width=True,
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state.page = key
@@ -304,7 +294,7 @@ def show_sidebar(real: dict, user: dict) -> None:
         # 4. Impersonation banner
         if st.session_state.impersonating:
             st.warning(f"👁 Viewing as:\n**{user.get('username')}**")
-            if st.button("↩️ Exit View"):
+            if st.button("↩️ Exit View", use_container_width=True):
                 st.session_state.impersonating = None
                 st.session_state.page = 'dashboard'
                 st.rerun()
@@ -312,9 +302,7 @@ def show_sidebar(real: dict, user: dict) -> None:
         # 5. Shared filter — Company + Date Range (data pages only)
         if st.session_state.page in ('dashboard', 'reports', 'cash_flow', 'downloads'):
             st.markdown("---")
-            conn       = get_conn()
-            company_id = _render_company_selector(user, conn)
-            conn.close()
+            company_id = _render_company_selector(user)
 
             if company_id:
                 _render_date_filter(company_id)

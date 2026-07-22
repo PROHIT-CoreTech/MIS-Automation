@@ -1,6 +1,7 @@
 import streamlit as st
 from urllib.parse import urlparse
-from core.db import get_conn
+from core.models import Tenant
+from core.auth import doc_to_dict
 
 def get_current_subdomain() -> str | None:
     """
@@ -23,6 +24,11 @@ def get_current_subdomain() -> str | None:
                 return parts[0]
             return None
         else:
+            # Render free tier domain (e.g. mis-automation-5l1a.onrender.com)
+            if 'onrender.com' in host:
+                if len(parts) > 3:
+                    return parts[0]
+                return None
             # Production domain e.g. hooli.misportal.com (base domain misportal.com has 2 parts)
             # If parts is ['hooli', 'misportal', 'com'], length is 3, return parts[0]
             if len(parts) > 2:
@@ -33,10 +39,5 @@ def get_current_subdomain() -> str | None:
 
 def get_tenant_by_subdomain(subdomain: str) -> dict | None:
     """Query tenant settings by its unique slug/subdomain."""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM tenants WHERE slug = ?",
-        (subdomain.lower().strip(),)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    tenant = Tenant.objects(slug=subdomain.lower().strip()).first()
+    return doc_to_dict(tenant)

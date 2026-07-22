@@ -79,7 +79,7 @@ rather than hidden — use it to see exactly which months are trustworthy.
 import io
 import streamlit as st
 
-from core.db        import get_conn
+from core.models    import PLData, BSData
 from core.theme     import chart_layout, CHART_COLORS, CHART_PALETTE
 from core.constants import (MONTHS, CASHFLOW_ASSET_BUCKETS,
                             CASHFLOW_GROUP_TOTAL_NAMES, CASHFLOW_PARENT_SKIP,
@@ -310,7 +310,6 @@ def _build_statement(pl_buckets, bs_buckets, cash_actual, months, mo_labels):
 
 # ── MAIN PAGE ─────────────────────────────────────────────────────
 def show_cash_flow(user):
-    conn = get_conn()
 
     company_id   = st.session_state.get('global_company_id')
     company_name = st.session_state.get('global_company_name', '')
@@ -322,29 +321,23 @@ def show_cash_flow(user):
     to_mo        = st.session_state.get('global_to_mo')
 
     if not company_id or not from_lbl:
-        conn.close()
         st.info("Select a company and date range from the sidebar to view the cash flow report.")
         return
 
     if (from_yr, from_mo) > (to_yr, to_mo):
-        conn.close()
         st.error("'From' cannot be after 'To'.")
         return
 
     # Available months (same pattern as reports.py)
-    avail = conn.execute(
-        "SELECT DISTINCT year, month FROM pl_data "
-        "WHERE company_id=? ORDER BY year, month", (company_id,)
-    ).fetchall()
+    from core.db import get_available_months
+    avail = get_available_months(company_id)
     if not avail:
-        conn.close()
         st.info("No data synced yet. Please sync from Tally first.")
         return
-    avail_ym = [(int(r['year']), int(r['month'])) for r in avail]
+    avail_ym = [(y, m) for y, m in avail]
 
     sel_months = [ym for ym in avail_ym if (from_yr, from_mo) <= ym <= (to_yr, to_mo)]
     if not sel_months:
-        conn.close()
         st.info("No data in the selected range.")
         return
     mo_labels = [f"{MONTHS[m-1]}-{str(y)[2:]}" for y, m in sel_months]
@@ -371,22 +364,33 @@ def show_cash_flow(user):
 
     # ── FETCH ──────────────────────────────────────────────
     yr0, mo0 = months_with_prior[0]
-    pl_rows = conn.execute("""
-        SELECT ledger_name, tally_group, mis_group, year, month, net
-        FROM pl_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-    """, (company_id, from_yr, from_yr, from_mo, to_yr, to_yr, to_mo)).fetchall()
+    
+    pl_data_docs = PLData.objects(company=company_id)
+    bs_data_docs = BSData.objects(company=company_id)
 
-    bs_rows = conn.execute("""
-        SELECT ledger_name, year, month, closing_bal
-        FROM bs_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-    """, (company_id, yr0, yr0, mo0, to_yr, to_yr, to_mo)).fetchall()
-    conn.close()
+    pl_rows = []
+    for doc in pl_data_docs:
+        if ((doc.year > from_yr) or (doc.year == from_yr and doc.month >= from_mo)) and \
+           ((doc.year < to_yr) or (doc.year == to_yr and doc.month <= to_mo)):
+           pl_rows.append({
+               'ledger_name': doc.ledger_name,
+               'mis_group': doc.mis_group,
+               'tally_group': doc.tally_group,
+               'year': doc.year,
+               'month': doc.month,
+               'net': doc.net
+           })
+           
+    bs_rows = []
+    for doc in bs_data_docs:
+        if ((doc.year > yr0) or (doc.year == yr0 and doc.month >= mo0)) and \
+           ((doc.year < to_yr) or (doc.year == to_yr and doc.month <= to_mo)):
+           bs_rows.append({
+               'ledger_name': doc.ledger_name,
+               'year': doc.year,
+               'month': doc.month,
+               'closing_bal': doc.closing_bal
+           })
 
     if not pl_rows:
         st.info("No P&L data for selected period.")
@@ -538,7 +542,12 @@ def show_cash_flow(user):
                     data=csv_bytes,
                     file_name=f"{report_base_name}.csv",
                     mime="text/csv",
-                        use_container_width=True,
+                    use_container_width=True,
+                    key="cf_dl_csv",
+                )
+
+        _render_html_table(table_rows, mo_labels)
+
 
 # ── STATEMENT ROW BUILDER (shared by on-screen table + CSV) ──────
 def _render_statement_rows(per_month, mo_labels):
