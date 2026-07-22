@@ -24,6 +24,11 @@ def get_current_subdomain() -> str | None:
                 return parts[0]
             return None
         else:
+            # Render free tier domain (e.g. mis-automation-5l1a.onrender.com)
+            if 'onrender.com' in host:
+                if len(parts) > 3:
+                    return parts[0]
+                return None
             # Production domain e.g. hooli.misportal.com (base domain misportal.com has 2 parts)
             # If parts is ['hooli', 'misportal', 'com'], length is 3, return parts[0]
             if len(parts) > 2:
