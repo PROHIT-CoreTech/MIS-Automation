@@ -213,6 +213,9 @@ def show_onboarding():
             slug = st.session_state.reg_slug
             name = st.session_state.reg_name
             
+            from core.subdomain import get_tenant_url
+            t_url = get_tenant_url(slug)
+            
             st.balloons()
             st.markdown('<div class="step-header">🎉 Step 4: Setup Complete!</div>', unsafe_allow_html=True)
             st.markdown(f'<div class="step-caption">Workspace <b>{name}</b> has been successfully created.</div>', unsafe_allow_html=True)
@@ -222,8 +225,8 @@ def show_onboarding():
                 <br/><br/>
                 <div style='background:rgba(99,102,241,0.08); border:1px solid rgba(99,102,241,0.2); 
                      border-radius:12px; padding:20px; font-weight:600; text-align:center; font-size:1.3rem; margin-bottom:24px;'>
-                    <a href='http://{slug}.localhost:8501/' target='_self' style='color:#6366f1; text-decoration:none;'>
-                        http://{slug}.localhost:8501
+                    <a href='{t_url}' target='_self' style='color:#6366f1; text-decoration:none;'>
+                        {t_url}
                     </a>
                 </div>
                 Click the link above or the button below to navigate to your branded login screen and start using the portal.
@@ -243,7 +246,7 @@ def show_onboarding():
                     st.rerun()
             with col_go:
                 st.markdown(f"""
-                    <a href='http://{slug}.localhost:8501/' target='_self' style='
+                    <a href='{t_url}' target='_self' style='
                         display:block; text-align:center; background:#6366f1; color:white; 
                         padding:10px 16px; border-radius:8px; text-decoration:none; font-weight:600;'>
                         🚀 Go to Portal

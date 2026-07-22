@@ -119,7 +119,8 @@ def show_saas_admin():
                 price = get_price(t['plan_name'])
                 import os
                 is_render = os.environ.get('RENDER') == 'true'
-                url_display = "Login via Main Portal" if is_render else f"http://{t['slug']}.localhost:8501/"
+                from core.subdomain import get_tenant_url
+                url_display = "Login via Main Portal" if is_render else get_tenant_url(t['slug'])
                 payment_data.append({
                     "Tenant Name": t['name'],
                     "Access URL": url_display,
@@ -161,7 +162,9 @@ def show_saas_admin():
                         if is_render:
                             st.markdown(f"Access: Login via Main Portal (<a href='https://mis-automation-5l1a.onrender.com' target='_blank'>Live Link</a>)", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"Subdomain URL: <a href='http://{t['slug']}.localhost:8501/' target='_blank'>http://{t['slug']}.localhost:8501/</a>", unsafe_allow_html=True)
+                            from core.subdomain import get_tenant_url
+                            t_url = get_tenant_url(t['slug'])
+                            st.markdown(f"Subdomain URL: <a href='{t_url}' target='_blank'>{t_url}</a>", unsafe_allow_html=True)
                         st.write(f"Created At: `{t['created_at']}`")
                         st.write(f"Active Client Accounts: `{t['client_count']}`")
                         

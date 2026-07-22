@@ -48,3 +48,18 @@ def get_tenant_by_subdomain(subdomain: str) -> dict | None:
     """Query tenant settings by its unique slug/subdomain."""
     tenant = Tenant.objects(slug=subdomain.lower().strip()).first()
     return doc_to_dict(tenant)
+
+def get_base_host() -> str:
+    """Returns the base host with port (e.g., 'localhost:8504' or 'misportal.com')"""
+    try:
+        if hasattr(st, "context") and hasattr(st.context, "headers"):
+            host_header = st.context.headers.get("Host")
+            if host_header:
+                parts = host_header.split('.')
+                if 'localhost' in host_header:
+                    if len(parts) > 1 and parts[-1].startswith('localhost'):
+                        return parts[-1]
+                return host_header
+    except Exception:
+        pass
+    return "localhost:8501"

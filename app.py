@@ -235,13 +235,18 @@ else:
             user_tenant = st.session_state.user.get('tenant')
             if user_tenant:
                 slug = user_tenant['slug']
+                from core.subdomain import get_base_host
+                base_host = get_base_host()
+                scheme = "http" if "localhost" in base_host else "https"
+                redirect_url = f"{scheme}://{slug}.{base_host}/"
+                
                 st.markdown(f"""
                     <div style='text-align:center; padding:100px 20px;'>
                         <h2 style='color:#f1f5f9; font-weight:700;'>Redirecting to Your Workspace Portal</h2>
                         <p style='color:#94a3b8; margin:20px 0;'>
                             Please use your organization's custom subdomain link to access the dashboard:
                         </p>
-                        <a href='http://{slug}.localhost:8501/' target='_self' style='
+                        <a href='{redirect_url}' target='_self' style='
                             display:inline-block; background:#6366f1; color:white; 
                             padding:12px 24px; border-radius:12px; text-decoration:none; font-weight:600;
                             box-shadow: 0 4px 20px rgba(99,102,241,0.3); margin-bottom: 24px;'>
