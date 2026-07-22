@@ -126,7 +126,10 @@ def _render_date_filter(company_id: str) -> None:
         st.session_state[f"{ck}_from"]  = (
             mo_opts[-12] if len(mo_opts) >= 12 else mo_opts[0]
         )
+    if (f"{ck}_to" not in st.session_state or
+            st.session_state.get(f"{ck}_to") not in mo_opts):
         st.session_state[f"{ck}_to"]    = mo_opts[-1]
+    if f"{ck}_quick" not in st.session_state:
         st.session_state[f"{ck}_quick"] = ""
 
     st.markdown("""
