@@ -1,6 +1,7 @@
 import streamlit as st
 from urllib.parse import urlparse
-from core.db import get_conn
+from core.models import Tenant
+from core.auth import doc_to_dict
 
 def get_current_subdomain() -> str | None:
     """
@@ -33,10 +34,5 @@ def get_current_subdomain() -> str | None:
 
 def get_tenant_by_subdomain(subdomain: str) -> dict | None:
     """Query tenant settings by its unique slug/subdomain."""
-    conn = get_conn()
-    row = conn.execute(
-        "SELECT * FROM tenants WHERE slug = ?",
-        (subdomain.lower().strip(),)
-    ).fetchone()
-    conn.close()
-    return dict(row) if row else None
+    tenant = Tenant.objects(slug=subdomain.lower().strip()).first()
+    return doc_to_dict(tenant)

@@ -7,15 +7,17 @@ or copy .env.example → .env and fill in values.
 """
 import os
 from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env
+load_dotenv()
 
 # ── PROJECT ROOT ───────────────────────────────────────────────
 _ROOT = Path(__file__).resolve().parent.parent
 
 # ── DATABASE ───────────────────────────────────────────────────
-DB_PATH: str = os.environ.get(
-    'MIS_DB_PATH',
-    str(_ROOT / 'data' / 'mis_portal.db')
-)
+MONGO_URI: str = os.environ.get('MONGO_URI_DEVELOPMENT', 'mongodb://localhost:27017/mis_portal')
+
 
 # ── TALLY PRIME CONNECTION ─────────────────────────────────────
 TALLY_URL: str     = os.environ.get('TALLY_URL', 'http://localhost:9000')

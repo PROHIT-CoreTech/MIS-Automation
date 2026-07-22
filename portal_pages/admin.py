@@ -1,6 +1,7 @@
 """Admin Panel — Client management, permissions, impersonation"""
 import streamlit as st
-from core.db   import get_conn, get_company_ids_for_user
+from core.db import get_company_ids_for_user
+from core.models import Company
 from core.auth import (create_client, get_all_clients, toggle_client_active,
                         reset_client_password, update_client_permissions,
                         update_client_companies, get_user_by_id)
@@ -25,9 +26,8 @@ def show_admin(admin_user):
                         st.caption(f"Excel: {'✅' if c['can_download_excel'] else '❌'} | PPT: {'✅' if c['can_download_ppt'] else '❌'}")
                     with col2:
                         if st.button("👁 View as Client", key=f"imp_{c['id']}"):
-                            full = get_user_by_id(c['id'])
-                            if full:
-                                full_dict = dict(full)
+                            full_dict = get_user_by_id(c['id'])
+                            if full_dict:
                                 full_dict['company_ids'] = get_company_ids_for_user(c['id'], 'client', admin_user.get('tenant_id'))
                                 st.session_state.impersonating = full_dict
                                 st.rerun()
@@ -46,12 +46,7 @@ def show_admin(admin_user):
     # ── TAB 2: CREATE CLIENT ──────────────────────────────
     with tab2:
         st.subheader("Create New Client")
-        conn = get_conn()
-        companies = conn.execute(
-            "SELECT id, display_name FROM companies WHERE is_active=1 AND tenant_id=? ORDER BY display_name",
-            (admin_user.get('tenant_id'),)
-        ).fetchall()
-        conn.close()
+        companies = Company.objects(is_active=True, tenant=admin_user.get('tenant_id')).order_by('display_name')
 
         with st.form("create_client_form"):
             col1, col2 = st.columns(2)
@@ -60,7 +55,7 @@ def show_admin(admin_user):
                 username  = st.text_input("Username *")
                 password  = st.text_input("Password *", type="password")
             with col2:
-                company_options = {c['display_name']: c['id'] for c in companies}
+                company_options = {c.display_name or c.tally_name: str(c.id) for c in companies}
                 selected_cos    = st.multiselect("Assign Companies *", list(company_options.keys()))
                 can_excel = st.checkbox("Excel Download", value=True)
                 can_ppt   = st.checkbox("PPT Download",   value=False)

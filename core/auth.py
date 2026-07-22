@@ -5,17 +5,33 @@ Authentication & Authorization
 - Permission checks (excel, ppt)
 - Account lockout after N failed attempts
 - Admin impersonation
-
-Lockout configuration is sourced from core.config.
 """
 import logging
 import bcrypt
+import secrets
 from datetime import datetime, timedelta
 
 from core.config import MAX_ATTEMPTS, LOCKOUT_MINS, ADMIN_USERNAME, ADMIN_PASSWORD
-from core.db import get_conn, get_company_ids_for_user
+from core.models import User, Session, Tenant, Company
+from core.db import get_company_ids_for_user
 
 log = logging.getLogger(__name__)
+
+
+# ── HELPER ─────────────────────────────────────────────────────
+def doc_to_dict(doc) -> dict:
+    if not doc:
+        return None
+    d = doc.to_mongo().to_dict()
+    d['id'] = str(d.pop('_id'))
+    
+    # Map foreign keys to strings
+    if 'tenant' in d and d['tenant']:
+        d['tenant_id'] = str(d['tenant'])
+    else:
+        d['tenant_id'] = None
+        
+    return d
 
 
 # ── PASSWORD UTILS ─────────────────────────────────────────────
@@ -28,64 +44,43 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # ── SESSIONS (Persistent Login) ────────────────────────────────
-import secrets
-
-def create_session(user_id: int, hours: int = 24) -> str:
+def create_session(user_id: str, hours: int = 24) -> str:
     """Generate a token, store in DB, and return it."""
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.now() + timedelta(hours=hours)).isoformat()
-    conn = get_conn()
-    conn.execute(
-        "INSERT INTO sessions (token, user_id, expires_at) VALUES (?, ?, ?)",
-        (token, user_id, expires_at)
-    )
-    conn.commit()
-    conn.close()
+    expires_at = datetime.utcnow() + timedelta(hours=hours)
+    Session(token=token, user=user_id, expires_at=expires_at).save()
     return token
 
 def get_user_by_session(token: str) -> dict | None:
     """Validate token and return full user dict if valid and active."""
-    conn = get_conn()
-    session = conn.execute("SELECT * FROM sessions WHERE token=?", (token,)).fetchone()
+    session = Session.objects(token=token).first()
     if not session:
-        conn.close()
         return None
         
-    if datetime.now() > datetime.fromisoformat(session['expires_at']):
-        conn.execute("DELETE FROM sessions WHERE token=?", (token,))
-        conn.commit()
-        conn.close()
+    if datetime.utcnow() > session.expires_at:
+        session.delete()
         return None
         
-    # Get user
-    user = conn.execute("SELECT * FROM users WHERE id=? AND is_active=1", (session['user_id'],)).fetchone()
-    if not user:
-        conn.close()
+    user = session.user
+    if not user or not user.is_active:
         return None
         
     # Standard login checks
-    tenant = None
-    if user['tenant_id']:
-        tenant = conn.execute("SELECT * FROM tenants WHERE id=?", (user['tenant_id'],)).fetchone()
-        if tenant and not tenant['is_active']:
-            conn.close()
-            return None
+    tenant = user.tenant
+    if tenant and not tenant.is_active:
+        return None
             
-    company_ids = get_company_ids_for_user(user['id'], user['role'], user['tenant_id'])
-    user_dict = dict(user)
+    company_ids = get_company_ids_for_user(str(user.id), user.role, str(tenant.id) if tenant else None)
+    
+    user_dict = doc_to_dict(user)
     user_dict['company_ids'] = company_ids
-    user_dict['tenant'] = dict(tenant) if tenant else None
-    conn.close()
+    user_dict['tenant'] = doc_to_dict(tenant) if tenant else None
     return user_dict
 
 def delete_session(token: str) -> None:
     """Remove session from DB."""
     if not token: return
-    conn = get_conn()
-    conn.execute("DELETE FROM sessions WHERE token=?", (token,))
-    conn.commit()
-    conn.close()
-
+    Session.objects(token=token).delete()
 
 
 # ── CREATE ADMIN (first-time setup) ────────────────────────────
@@ -93,29 +88,25 @@ def create_admin_if_not_exists(
     username: str = ADMIN_USERNAME,
     password: str = ADMIN_PASSWORD,
 ) -> None:
-    conn = get_conn()
-    existing = conn.execute(
-        "SELECT id FROM users WHERE role='super_admin'"
-    ).fetchone()
+    existing = User.objects(role='super_admin').first()
     if not existing:
         # Check if there is an old admin and upgrade its role to super_admin
-        old_admin = conn.execute(
-            "SELECT id FROM users WHERE username=? AND role='admin'", (username,)
-        ).fetchone()
+        old_admin = User.objects(username=username, role='admin').first()
         if old_admin:
-            conn.execute(
-                "UPDATE users SET role='super_admin', tenant_id=NULL WHERE id=?", (old_admin['id'],)
-            )
+            old_admin.role = 'super_admin'
+            old_admin.tenant = None
+            old_admin.save()
             log.info("Upgraded existing admin to super_admin: %s", username)
         else:
-            conn.execute("""
-                INSERT INTO users (username, password_hash, full_name, role,
-                                   can_download_excel, can_download_ppt, tenant_id)
-                VALUES (?, ?, 'SaaS Super Administrator', 'super_admin', 1, 1, NULL)
-            """, (username, hash_password(password)))
+            User(
+                username=username,
+                password_hash=hash_password(password),
+                full_name='SaaS Super Administrator',
+                role='super_admin',
+                can_download_excel=True,
+                can_download_ppt=True
+            ).save()
             log.info("Super Admin created: %s", username)
-        conn.commit()
-    conn.close()
 
 
 # ── LOGIN ──────────────────────────────────────────────────────
@@ -124,83 +115,56 @@ def login(username: str, password: str) -> dict | None:
     Returns user dict on success, None on bad credentials.
     Raises PermissionError when account is locked or tenant is suspended.
     """
-    conn = get_conn()
-    user = conn.execute(
-        "SELECT * FROM users WHERE username=? AND is_active=1",
-        (username,)
-    ).fetchone()
+    user = User.objects(username=username, is_active=True).first()
 
     if not user:
-        conn.close()
         return None
 
     # Check lockout — admin/super_admin are exempt
-    if user['locked_until'] and user['role'] not in ('admin', 'super_admin'):
-        locked_until = datetime.fromisoformat(user['locked_until'])
-        if datetime.now() < locked_until:
-            conn.close()
-            mins_left = int((locked_until - datetime.now()).seconds / 60) + 1
+    if user.locked_until and user.role not in ('admin', 'super_admin'):
+        if datetime.utcnow() < user.locked_until:
+            mins_left = int((user.locked_until - datetime.utcnow()).seconds / 60) + 1
             raise PermissionError(f"Account locked. Try again in {mins_left} min.")
         else:
             # Lock expired — reset counter
-            conn.execute(
-                "UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?",
-                (user['id'],)
-            )
-            conn.commit()
+            user.failed_attempts = 0
+            user.locked_until = None
+            user.save()
 
     # Verify password
-    if not verify_password(password, user['password_hash']):
-        if user['role'] in ('admin', 'super_admin'):
-            conn.close()
+    if not verify_password(password, user.password_hash):
+        if user.role in ('admin', 'super_admin'):
             return None
 
-        attempts = user['failed_attempts'] + 1
+        attempts = user.failed_attempts + 1
         if attempts >= MAX_ATTEMPTS:
-            locked_until = (datetime.now() + timedelta(minutes=LOCKOUT_MINS)).isoformat()
-            conn.execute(
-                "UPDATE users SET failed_attempts=?, locked_until=? WHERE id=?",
-                (attempts, locked_until, user['id'])
-            )
-            conn.commit()
-            conn.close()
+            user.locked_until = datetime.utcnow() + timedelta(minutes=LOCKOUT_MINS)
+            user.failed_attempts = attempts
+            user.save()
             raise PermissionError(
                 f"Too many attempts. Account locked for {LOCKOUT_MINS} minutes."
             )
 
-        conn.execute(
-            "UPDATE users SET failed_attempts=? WHERE id=?",
-            (attempts, user['id'])
-        )
-        conn.commit()
-        conn.close()
+        user.failed_attempts = attempts
+        user.save()
         return None
 
     # Success — reset failed attempts
-    conn.execute(
-        "UPDATE users SET failed_attempts=0, locked_until=NULL WHERE id=?",
-        (user['id'],)
-    )
-    conn.commit()
+    user.failed_attempts = 0
+    user.locked_until = None
+    user.save()
 
     # Load Tenant Info & check active status
-    tenant = None
-    if user['tenant_id']:
-        tenant = conn.execute(
-            "SELECT * FROM tenants WHERE id=?", (user['tenant_id'],)
-        ).fetchone()
-        if tenant and not tenant['is_active']:
-            conn.close()
+    tenant = user.tenant
+    if tenant:
+        if not tenant.is_active:
             raise PermissionError("Your organization account is suspended. Please contact support.")
-        if not tenant:
-            conn.close()
-            raise PermissionError("Tenant configuration not found.")
 
-    company_ids = get_company_ids_for_user(user['id'], user['role'], user['tenant_id'])
-    user_dict = dict(user)
+    company_ids = get_company_ids_for_user(str(user.id), user.role, str(tenant.id) if tenant else None)
+    
+    user_dict = doc_to_dict(user)
     user_dict['company_ids'] = company_ids
-    user_dict['tenant'] = dict(tenant) if tenant else None
-    conn.close()
+    user_dict['tenant'] = doc_to_dict(tenant) if tenant else None
     return user_dict
 
 
@@ -212,116 +176,72 @@ def create_client(
     company_ids: list,
     can_excel: bool = True,
     can_ppt: bool = False,
-    created_by: int | None = None,
-    tenant_id: int | None = None,
-) -> int:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users
-            (username, password_hash, full_name, role,
-             can_download_excel, can_download_ppt, created_by, tenant_id)
-        VALUES (?, ?, ?, 'client', ?, ?, ?, ?)
-    """, (username, hash_password(password), full_name,
-          int(can_excel), int(can_ppt), created_by, tenant_id))
-    user_id = cur.lastrowid
-    for cid in company_ids:
-        cur.execute(
-            "INSERT OR IGNORE INTO user_company_map(user_id, company_id) VALUES(?,?)",
-            (user_id, cid)
-        )
-    conn.commit()
-    conn.close()
-    return user_id
+    created_by: str | None = None,
+    tenant_id: str | None = None,
+) -> str:
+    user = User(
+        username=username,
+        password_hash=hash_password(password),
+        full_name=full_name,
+        role='client',
+        can_download_excel=can_excel,
+        can_download_ppt=can_ppt,
+        created_by=created_by,
+        tenant=tenant_id,
+        companies=company_ids
+    ).save()
+    return str(user.id)
 
 
-def update_client_permissions(user_id: int, can_excel: bool, can_ppt: bool) -> None:
-    conn = get_conn()
-    conn.execute("""
-        UPDATE users SET can_download_excel=?, can_download_ppt=?
-        WHERE id=?
-    """, (int(can_excel), int(can_ppt), user_id))
-    conn.commit()
-    conn.close()
-
-
-def update_client_companies(user_id: int, company_ids: list) -> None:
-    conn = get_conn()
-    conn.execute("DELETE FROM user_company_map WHERE user_id=?", (user_id,))
-    for cid in company_ids:
-        conn.execute(
-            "INSERT OR IGNORE INTO user_company_map(user_id,company_id) VALUES(?,?)",
-            (user_id, cid)
-        )
-    conn.commit()
-    conn.close()
-
-
-def toggle_client_active(user_id: int, active: bool) -> None:
-    conn = get_conn()
-    conn.execute("UPDATE users SET is_active=? WHERE id=?", (int(active), user_id))
-    conn.commit()
-    conn.close()
-
-
-def reset_client_password(user_id: int, new_password: str) -> None:
-    conn = get_conn()
-    conn.execute(
-        "UPDATE users SET password_hash=?, failed_attempts=0, locked_until=NULL WHERE id=?",
-        (hash_password(new_password), user_id)
+def update_client_permissions(user_id: str, can_excel: bool, can_ppt: bool) -> None:
+    User.objects(id=user_id).update(
+        set__can_download_excel=can_excel,
+        set__can_download_ppt=can_ppt
     )
-    conn.commit()
-    conn.close()
 
 
-def get_all_clients(tenant_id: int | None = None) -> list:
-    conn = get_conn()
-    if tenant_id is None:
-        rows = conn.execute("""
-            SELECT u.id, u.username, u.full_name, u.role,
-                   u.can_download_excel, u.can_download_ppt,
-                   u.is_active, u.failed_attempts, u.locked_until,
-                   u.created_at,
-                   GROUP_CONCAT(c.display_name, ', ') as companies
-            FROM users u
-            LEFT JOIN user_company_map ucm ON ucm.user_id = u.id
-            LEFT JOIN companies c ON c.id = ucm.company_id
-            WHERE u.role = 'client'
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-        """).fetchall()
+def update_client_companies(user_id: str, company_ids: list) -> None:
+    User.objects(id=user_id).update(set__companies=company_ids)
+
+
+def toggle_client_active(user_id: str, active: bool) -> None:
+    User.objects(id=user_id).update(set__is_active=active)
+
+
+def reset_client_password(user_id: str, new_password: str) -> None:
+    User.objects(id=user_id).update(
+        set__password_hash=hash_password(new_password),
+        set__failed_attempts=0,
+        set__locked_until=None
+    )
+
+
+def get_all_clients(tenant_id: str | None = None) -> list:
+    if tenant_id:
+        users = User.objects(role='client', tenant=tenant_id).order_by('-created_at')
     else:
-        rows = conn.execute("""
-            SELECT u.id, u.username, u.full_name, u.role,
-                   u.can_download_excel, u.can_download_ppt,
-                   u.is_active, u.failed_attempts, u.locked_until,
-                   u.created_at,
-                   GROUP_CONCAT(c.display_name, ', ') as companies
-            FROM users u
-            LEFT JOIN user_company_map ucm ON ucm.user_id = u.id
-            LEFT JOIN companies c ON c.id = ucm.company_id
-            WHERE u.role = 'client' AND u.tenant_id = ?
-            GROUP BY u.id
-            ORDER BY u.created_at DESC
-        """, (tenant_id,)).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+        users = User.objects(role='client').order_by('-created_at')
+        
+    results = []
+    for u in users:
+        d = doc_to_dict(u)
+        d['companies'] = ", ".join([c.display_name for c in u.companies if c.display_name]) if u.companies else ""
+        results.append(d)
+    return results
 
 
-def get_user_by_id(user_id: int) -> dict | None:
-    conn = get_conn()
-    row = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
-    conn.close()
-    return dict(row) if row else None
+def get_user_by_id(user_id: str) -> dict | None:
+    user = User.objects(id=user_id).first()
+    return doc_to_dict(user)
 
 
 # ── PERMISSION CHECKS ──────────────────────────────────────────
 def can_download_excel(user: dict) -> bool:
-    return bool(user.get('can_download_excel', 0)) or user.get('role') in ('admin', 'super_admin')
+    return bool(user.get('can_download_excel', False)) or user.get('role') in ('admin', 'super_admin')
 
 
 def can_download_ppt(user: dict) -> bool:
-    return bool(user.get('can_download_ppt', 0)) or user.get('role') in ('admin', 'super_admin')
+    return bool(user.get('can_download_ppt', False)) or user.get('role') in ('admin', 'super_admin')
 
 
 def is_admin(user: dict) -> bool:
@@ -329,53 +249,46 @@ def is_admin(user: dict) -> bool:
 
 
 # ── SAAS TENANT CRUD HELPERS ──────────────────────────────────
-def create_tenant(name: str, slug: str, plan_name: str, features: list) -> int:
+def create_tenant(name: str, slug: str, plan_name: str, features: list) -> str:
     import json
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO tenants (name, slug, plan_name, features, is_active)
-        VALUES (?, ?, ?, ?, 1)
-    """, (name, slug.lower().strip(), plan_name, json.dumps(features)))
-    tenant_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return tenant_id
+    tenant = Tenant(
+        name=name,
+        slug=slug.lower().strip(),
+        plan_name=plan_name,
+        features=json.dumps(features),
+        is_active=True
+    ).save()
+    return str(tenant.id)
 
 
-def update_tenant(tenant_id: int, plan_name: str, features: list, is_active: bool) -> None:
+def update_tenant(tenant_id: str, plan_name: str, features: list, is_active: bool) -> None:
     import json
-    conn = get_conn()
-    conn.execute("""
-        UPDATE tenants
-        SET plan_name = ?, features = ?, is_active = ?
-        WHERE id = ?
-    """, (plan_name, json.dumps(features), int(is_active), tenant_id))
-    conn.commit()
-    conn.close()
+    Tenant.objects(id=tenant_id).update(
+        set__plan_name=plan_name,
+        set__features=json.dumps(features),
+        set__is_active=is_active
+    )
 
 
 def get_all_tenants() -> list:
-    conn = get_conn()
-    rows = conn.execute("""
-        SELECT t.*, 
-               (SELECT COUNT(*) FROM users u WHERE u.tenant_id = t.id AND u.role = 'client') as client_count
-        FROM tenants t
-        ORDER BY t.created_at DESC
-    """).fetchall()
-    conn.close()
-    return [dict(r) for r in rows]
+    tenants = Tenant.objects().order_by('-created_at')
+    results = []
+    for t in tenants:
+        d = doc_to_dict(t)
+        d['client_count'] = User.objects(tenant=t, role='client').count()
+        results.append(d)
+    return results
 
 
-def create_tenant_admin(tenant_id: int, username: str, password: str, full_name: str) -> int:
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users (username, password_hash, full_name, role, 
-                           can_download_excel, can_download_ppt, is_active, tenant_id)
-        VALUES (?, ?, ?, 'admin', 1, 1, 1, ?)
-    """, (username.lower().strip(), hash_password(password), full_name, tenant_id))
-    admin_id = cur.lastrowid
-    conn.commit()
-    conn.close()
-    return admin_id
+def create_tenant_admin(tenant_id: str, username: str, password: str, full_name: str) -> str:
+    admin = User(
+        username=username.lower().strip(),
+        password_hash=hash_password(password),
+        full_name=full_name,
+        role='admin',
+        can_download_excel=True,
+        can_download_ppt=True,
+        is_active=True,
+        tenant=tenant_id
+    ).save()
+    return str(admin.id)

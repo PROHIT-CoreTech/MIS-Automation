@@ -13,7 +13,7 @@ Tally P&L Structure:
 """
 import streamlit as st
 from datetime import date
-from core.db        import get_conn
+from core.models    import PLData, BSData
 from core.auth      import is_admin
 from core.theme     import chart_layout, donut_chart_figure, CHART_COLORS, CHART_PALETTE
 from core.constants import MONTHS, TALLY_MAP, COGS_NAMES, PL_HEADERS
@@ -188,7 +188,6 @@ def _monthly(rows):
 
 
 def show_dashboard(user):
-    conn = get_conn()
 
     # ── Read from shared sidebar filter (set by app.py) ──────
     company_id   = st.session_state.get('global_company_id')
@@ -201,24 +200,20 @@ def show_dashboard(user):
     to_mo        = st.session_state.get('global_to_mo')
 
     if not company_id or not from_lbl:
-        conn.close()
         st.info("Select a company and date range from the sidebar to view the dashboard.")
         return
 
     # Available months for n_months count
-    avail = conn.execute(
-        "SELECT DISTINCT year, month FROM pl_data "
-        "WHERE company_id=? ORDER BY year, month", (company_id,)
-    ).fetchall()
+    from core.db import get_available_months
+    avail = get_available_months(company_id)
 
     if not avail:
-        conn.close()
         st.info("No data synced yet. Please sync from Tally first.")
         return
 
-    n_months = sum(1 for r in avail
-                   if (int(r['year']), int(r['month'])) >= (from_yr, from_mo)
-                   and (int(r['year']), int(r['month'])) <= (to_yr, to_mo))
+    n_months = sum(1 for y, m in avail
+                   if (y, m) >= (from_yr, from_mo)
+                   and (y, m) <= (to_yr, to_mo))
 
     # ── STICKY HEADER — stays visible while scrolling charts below ──
     st.markdown(f"""
@@ -232,26 +227,33 @@ def show_dashboard(user):
     st.markdown("---")
 
     # ── FETCH ──────────────────────────────────────────────
-    pl_rows = conn.execute("""
-        SELECT ledger_name, mis_group, tally_group, year, month, month_label, net
-        FROM pl_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-        ORDER BY year, month
-    """, (company_id, from_yr, from_yr, from_mo,
-          to_yr,   to_yr,   to_mo)).fetchall()
+    pl_data_docs = PLData.objects(company=company_id).order_by('year', 'month')
+    bs_data_docs = BSData.objects(company=company_id).order_by('year', 'month')
 
-    bs_rows = conn.execute("""
-        SELECT ledger_name, year, month, closing_bal
-        FROM bs_data
-        WHERE company_id=?
-          AND ((year > ?) OR (year = ? AND month >= ?))
-          AND ((year < ?) OR (year = ? AND month <= ?))
-        ORDER BY year, month
-    """, (company_id, from_yr, from_yr, from_mo,
-          to_yr,   to_yr,   to_mo)).fetchall()
-    conn.close()
+    pl_rows = []
+    for doc in pl_data_docs:
+        if ((doc.year > from_yr) or (doc.year == from_yr and doc.month >= from_mo)) and \
+           ((doc.year < to_yr) or (doc.year == to_yr and doc.month <= to_mo)):
+           pl_rows.append({
+               'ledger_name': doc.ledger_name,
+               'mis_group': doc.mis_group,
+               'tally_group': doc.tally_group,
+               'year': doc.year,
+               'month': doc.month,
+               'month_label': doc.month_label,
+               'net': doc.net
+           })
+           
+    bs_rows = []
+    for doc in bs_data_docs:
+        if ((doc.year > from_yr) or (doc.year == from_yr and doc.month >= from_mo)) and \
+           ((doc.year < to_yr) or (doc.year == to_yr and doc.month <= to_mo)):
+           bs_rows.append({
+               'ledger_name': doc.ledger_name,
+               'year': doc.year,
+               'month': doc.month,
+               'closing_bal': doc.closing_bal
+           })
 
     if not pl_rows:
         st.info("No P&L data for selected period.")
@@ -354,7 +356,7 @@ def show_dashboard(user):
             chart_layout(fig, height=300,
                         legend=dict(orientation='h', yanchor='bottom', y=1.02,
                                     font=dict(color=CHART_COLORS['text'], size=10)))
-            st.plotly_chart(fig, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
         st.markdown('</div>', unsafe_allow_html=True)
 
     with col2:
@@ -372,7 +374,7 @@ def show_dashboard(user):
         if oh_grp:
             fig2 = donut_chart_figure(list(oh_grp.keys()), list(oh_grp.values()))
             fig2.update_layout(height=300)
-            st.plotly_chart(fig2, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig2, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No overhead data")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -398,7 +400,7 @@ def show_dashboard(user):
                 fillcolor='rgba(46,155,231,0.18)',
             ))
             chart_layout(fig3, height=280, showlegend=False)
-            st.plotly_chart(fig3, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig3, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No cash/bank data")
         st.markdown('</div>', unsafe_allow_html=True)
@@ -420,7 +422,7 @@ def show_dashboard(user):
                         legend=dict(orientation='h', font=dict(color=CHART_COLORS['text'], size=10)),
                         yaxis=dict(gridcolor=CHART_COLORS['grid'], color=CHART_COLORS['text'],
                                     ticksuffix='%'))
-            st.plotly_chart(fig4, width="stretch", config={'displayModeBar': False})
+            st.plotly_chart(fig4, use_container_width=True, config={'displayModeBar': False})
         else:
             st.info("No revenue data for trend")
         st.markdown('</div>', unsafe_allow_html=True)
