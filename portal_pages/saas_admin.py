@@ -119,7 +119,7 @@ def show_saas_admin():
                 price = get_price(t['plan_name'])
                 payment_data.append({
                     "Tenant Name": t['name'],
-                    "Subdomain": f"{t['slug']}.localhost:8501",
+                    "Access URL": "Login via Main Portal",
                     "Plan Level": t['plan_name'],
                     "Monthly Rate (₹)": f"₹{price:,.0f}" if t['is_active'] else "₹0 (Suspended)",
                     "Status": "🟢 Active" if t['is_active'] else "🔴 Suspended"
@@ -153,7 +153,7 @@ def show_saas_admin():
                         st.markdown(f"**Tenant Details**")
                         st.write(f"ID: `{t['id']}`")
                         st.write(f"Current Plan: `{t['plan_name']}`")
-                        st.markdown(f"Subdomain URL: <a href='http://{t['slug']}.localhost:8501/' target='_blank'>http://{t['slug']}.localhost:8501/</a>", unsafe_allow_html=True)
+                        st.markdown(f"Access: Login via Main Portal (<a href='https://mis-automation-5l1a.onrender.com' target='_blank'>Live Link</a>)", unsafe_allow_html=True)
                         st.write(f"Created At: `{t['created_at']}`")
                         st.write(f"Active Client Accounts: `{t['client_count']}`")
                         
