@@ -17,4 +17,4 @@ const plDataSchema = new mongoose.Schema({
 plDataSchema.index({ company: 1, ledger_name: 1, year: 1, month: 1 }, { unique: true });
 plDataSchema.index({ company: 1, year: 1, month: 1 });
 
-module.exports = mongoose.model('PLData', plDataSchema);
+module.exports = mongoose.model('PLData', plDataSchema, 'p_l_data');

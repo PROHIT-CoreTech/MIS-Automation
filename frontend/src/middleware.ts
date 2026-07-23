@@ -10,6 +10,7 @@ export function middleware(req: NextRequest) {
     url.pathname.startsWith('/api') || 
     url.pathname.startsWith('/_next') ||
     url.pathname.startsWith('/tenant') ||
+    url.pathname.startsWith('/admin') ||
     url.pathname.match(/\.(png|jpg|jpeg|gif|svg|ico|css|js)$/)
   ) {
     return NextResponse.next();

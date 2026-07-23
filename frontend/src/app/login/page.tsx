@@ -8,18 +8,41 @@ export default function LoginPage() {
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!username || !password) {
       setError('Please enter username and password');
       return;
     }
-    // In a real implementation, this would call the backend /api/auth/login
-    // and store the JWT before routing. For now, we mock the routing:
-    if (username === 'admin') {
-      window.location.href = '/admin';
-    } else {
-      window.location.href = '/tenant/rohit_inc';
+    try {
+      const res = await fetch('http://localhost:5001/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      if (!res.ok) {
+        const errData = await res.json();
+        setError(errData.error || 'Invalid credentials');
+        return;
+      }
+      const data = await res.json();
+      localStorage.setItem('token', data.token);
+      localStorage.setItem('user', JSON.stringify(data.user));
+      document.cookie = `token=${data.token}; path=/; max-age=86400; SameSite=Lax`;
+      
+      const role = data.user.role;
+      const tenantSlug = data.user.tenant ? data.user.tenant.slug : null;
+
+      if (role === 'super_admin') {
+        window.location.href = '/admin';
+      } else if (role === 'admin') {
+        window.location.href = `/tenant/${tenantSlug}/admin`;
+      } else {
+        window.location.href = `/tenant/${tenantSlug}`;
+      }
+    } catch (err) {
+      console.error(err);
+      setError('Network error connecting to backend');
     }
   };
 

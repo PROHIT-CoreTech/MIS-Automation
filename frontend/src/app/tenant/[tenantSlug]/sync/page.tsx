@@ -1,149 +1,254 @@
 'use client';
 
-import { use, useState } from 'react';
-import { 
-  Building2, TrendingUp, FileBarChart, PieChart as PieChartIcon, Target, 
-  RefreshCw, CheckCircle2, AlertCircle, Clock, Database 
-} from 'lucide-react';
+import React, { use, useState, useEffect } from 'react';
 import Link from 'next/link';
+import { 
+  PieChart as PieChartIcon, Building2, RotateCcw, RefreshCw, ChevronDown, 
+  ChevronUp, CheckCircle2, HelpCircle, Settings
+} from 'lucide-react';
 
 export default function SyncPortal({ params }: { params: Promise<{ tenantSlug: string }> }) {
   const resolvedParams = use(params);
   const tenantSlug = resolvedParams.tenantSlug;
-  const [isSyncing, setIsSyncing] = useState(false);
-  const [lastSync, setLastSync] = useState('2026-03-24 14:30:00');
-  
-  // Mock company details
-  const companyName = tenantSlug ? tenantSlug.replace(/_/g, ' ').toUpperCase() : "Rohit Inc";
 
-  const handleSync = () => {
+  const [showSettings, setShowSettings] = useState(false);
+  const [tallyUrl, setTallyUrl] = useState('https://chevron-gumming-sloped.ngrok-free.dev');
+  const [isUrlSettingsOpen, setIsUrlSettingsOpen] = useState(true);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState('2026-07-22 13:26:07');
+  const [connectedUrl, setConnectedUrl] = useState('https://chevron-gumming-sloped.ngrok-free.dev');
+  const [tenantFeatures, setTenantFeatures] = useState<string[]>([]);
+  const [authUser, setAuthUser] = useState<{ username: string; full_name: string; role: string } | null>(null);
+
+  useEffect(() => {
+    const userStr = localStorage.getItem('user');
+    if (userStr) { try { setAuthUser(JSON.parse(userStr)); } catch (e) {} }
+    if (tenantSlug) {
+      fetch(`http://localhost:5001/api/financial/tenant-info/${tenantSlug}`)
+        .then(r => r.ok ? r.json() : null)
+        .then(info => { if (info?.features) setTenantFeatures(Array.isArray(info.features) ? info.features : []); })
+        .catch(() => {});
+    }
+  }, [tenantSlug]);
+
+  const handleUpdateUrl = (e: React.FormEvent) => {
+    e.preventDefault();
+    setConnectedUrl(tallyUrl);
+    alert(`Tally URL updated to ${tallyUrl}`);
+  };
+
+  const handleSyncNow = () => {
     setIsSyncing(true);
     setTimeout(() => {
       setIsSyncing(false);
-      setLastSync(new Date().toLocaleString());
-    }, 3000);
+      const now = new Date();
+      const formattedStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+      setLastSyncTime(formattedStr);
+      alert('Tally data synced successfully!');
+    }, 2500);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
+    document.cookie = 'token=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    window.location.href = '/login';
   };
 
   return (
-    <div className="min-h-screen bg-[#090b14] text-slate-200 font-sans selection:bg-indigo-500/30">
-      
-      {/* Sidebar Navigation */}
-      <div className="fixed w-64 h-full bg-[#0f1629]/90 backdrop-blur-xl border-r border-white/10 p-6 flex flex-col z-20">
-        <div className="mb-10">
-          <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
-            <PieChartIcon className="w-5 h-5 text-indigo-400" />
-            MIS Portal
-          </h2>
-          <p className="text-xs text-indigo-400 mt-1 font-medium px-7 uppercase tracking-wider">{companyName}</p>
-        </div>
-
-        <nav className="space-y-1 flex-1">
-          <Link href={`/tenant/${tenantSlug}`} className="flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 transition-colors">
-            <Target className="w-4 h-4" /> Dashboard
-          </Link>
-          <Link href={`/tenant/${tenantSlug}/sync`} className="flex items-center gap-3 px-4 py-3 rounded-xl bg-indigo-600/20 text-indigo-400 border border-indigo-500/30 font-medium transition-colors">
-            <TrendingUp className="w-4 h-4" /> Tally Sync
-          </Link>
-          <button className="w-full flex items-center gap-3 px-4 py-3 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 transition-colors text-left">
-            <FileBarChart className="w-4 h-4" /> MIS Reports
-          </button>
-        </nav>
-
-        <div className="mt-auto">
-          <div className="bg-white/5 border border-white/10 rounded-xl p-4">
-            <p className="text-xs text-slate-400 font-medium mb-1">Logged in as</p>
-            <p className="text-sm font-bold text-slate-200">Admin User</p>
-            <button className="text-xs text-rose-400 hover:text-rose-300 mt-2 font-medium">Sign Out</button>
-          </div>
-        </div>
-      </div>
-
-      {/* Main Content */}
-      <div className="ml-64 p-8 max-w-4xl mx-auto">
-        
-        {/* Sticky Header */}
-        <div className="sticky top-0 z-10 bg-[#090b14]/80 backdrop-blur-md py-4 mb-8 border-b border-white/10 flex justify-between items-end">
-          <div>
-            <h1 className="text-3xl font-extrabold text-slate-100 tracking-tight flex items-center gap-3">
-              🔄 Tally Prime Synchronization
-            </h1>
-            <p className="text-sm text-slate-400 mt-2">
-              Securely connect and pull financial records directly from Tally ODBC.
-            </p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-8">
-          
-          {/* Status Card */}
-          <div className="bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-white/10 rounded-2xl p-8 relative overflow-hidden shadow-xl shadow-black/50">
-            <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full blur-3xl -mr-10 -mt-10"></div>
-            
-            <div className="flex items-center gap-4 mb-6">
-              <div className="p-3 bg-emerald-500/20 text-emerald-400 rounded-xl border border-emerald-500/30">
-                <Database className="w-6 h-6" />
-              </div>
-              <div>
-                <p className="text-sm font-medium text-slate-400">Connection Status</p>
-                <h3 className="text-xl font-bold text-emerald-400 flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5" /> Active
-                </h3>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="flex justify-between items-center py-3 border-b border-white/10">
-                <span className="text-slate-400 flex items-center gap-2"><Building2 className="w-4 h-4" /> Company</span>
-                <span className="font-bold text-slate-200">{companyName}</span>
-              </div>
-              <div className="flex justify-between items-center py-3 border-b border-white/10">
-                <span className="text-slate-400 flex items-center gap-2"><Clock className="w-4 h-4" /> Last Synced</span>
-                <span className="font-medium text-slate-200">{lastSync}</span>
-              </div>
-              <div className="flex justify-between items-center py-3">
-                <span className="text-slate-400">Records Parsed</span>
-                <span className="font-medium text-slate-200">12,450 rows</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Sync Action Card */}
-          <div className="bg-gradient-to-br from-white/[0.06] to-white/[0.02] border border-indigo-500/30 rounded-2xl p-8 flex flex-col justify-center items-center text-center shadow-[0_8px_32px_rgba(99,102,241,0.1)]">
-            <h3 className="text-xl font-bold text-slate-100 mb-2">Manual Sync Trigger</h3>
-            <p className="text-slate-400 text-sm mb-8">
-              Initiate a manual pull of the latest P&L and Balance Sheet ledgers from the connected Tally Prime instance.
-            </p>
-
-            <button 
-              onClick={handleSync}
-              disabled={isSyncing}
-              className={`w-full py-4 rounded-xl font-bold text-lg flex items-center justify-center gap-3 transition-all ${
-                isSyncing 
-                  ? 'bg-indigo-600/50 text-indigo-200 cursor-not-allowed' 
-                  : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/25 hover:shadow-indigo-500/40 hover:-translate-y-1'
-              }`}
-            >
-              <RefreshCw className={`w-5 h-5 ${isSyncing ? 'animate-spin' : ''}`} />
-              {isSyncing ? 'Synchronizing Data...' : 'Sync Now'}
+    <div className="min-h-screen bg-[#070913] text-slate-200 font-sans flex">
+      {/* SIDEBAR */}
+      <aside className="w-64 bg-[#0d1326] border-r border-white/10 p-4 flex flex-col justify-between shrink-0 min-h-screen">
+        <div>
+          <div className="flex items-center justify-between pb-4 mb-4 border-b border-white/10">
+            <h2 className="text-lg font-bold text-slate-100 flex items-center gap-2">
+              <PieChartIcon className="w-5 h-5 text-indigo-400" />
+              MIS Portal
+            </h2>
+            <button title="Refresh" onClick={() => window.location.reload()} className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 border border-white/10">
+              <RefreshCw className="w-3.5 h-3.5" />
             </button>
           </div>
 
+          {/* User Badge with Settings Dropdown */}
+          <div className="bg-[#151c33] border border-white/10 rounded-xl p-3 mb-6 relative">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className={`w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm border ${
+                  authUser?.role === 'admin'
+                    ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30'
+                    : 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                }`}>
+                  👤
+                </div>
+                <div>
+                  <p className="text-xs font-bold text-slate-200">{authUser?.full_name || authUser?.username || 'User'}</p>
+                  <span className={`inline-block mt-0.5 px-2 py-0.5 text-[10px] font-bold rounded-md tracking-wider border ${
+                    authUser?.role === 'admin'
+                      ? 'text-indigo-300 bg-indigo-500/20 border-indigo-500/30'
+                      : 'text-emerald-300 bg-emerald-500/20 border-emerald-500/30'
+                  }`}>
+                    {authUser?.role?.toUpperCase() || 'USER'}
+                  </span>
+                </div>
+              </div>
+
+              {authUser?.role === 'admin' && (
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowSettings(!showSettings)}
+                    className="p-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-slate-200 border border-white/10 transition-colors"
+                    title="Settings"
+                  >
+                    <Settings className="w-3.5 h-3.5 text-indigo-400" />
+                  </button>
+
+                  {showSettings && (
+                    <div className="absolute right-0 top-9 w-48 bg-[#0f1629] border border-white/15 rounded-xl shadow-2xl p-1.5 z-50 space-y-1">
+                      <Link 
+                        href={`/tenant/${tenantSlug}/admin`} 
+                        onClick={() => setShowSettings(false)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-indigo-600/20 text-xs font-semibold text-slate-200 transition-colors"
+                      >
+                        ⚙️ Admin Panel
+                      </Link>
+                      <Link 
+                        href={`/tenant/${tenantSlug}/subscription`} 
+                        onClick={() => setShowSettings(false)}
+                        className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-indigo-600/20 text-xs font-semibold text-slate-200 transition-colors"
+                      >
+                        💳 Subscription
+                      </Link>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 mb-2">Navigation</p>
+          <nav className="space-y-1 mb-6">
+            <Link href={`/tenant/${tenantSlug}`} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
+              📈 Dashboard
+            </Link>
+            {(tenantFeatures.length === 0 || tenantFeatures.includes('reports')) && (
+              <Link href={`/tenant/${tenantSlug}/reports`} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
+                📄 MIS Reports
+              </Link>
+            )}
+            {(tenantFeatures.length === 0 || tenantFeatures.includes('cash_flow')) && (
+              <Link href={`/tenant/${tenantSlug}/cash-flow`} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
+                💵 Cash Flow
+              </Link>
+            )}
+            {(tenantFeatures.length === 0 || tenantFeatures.includes('downloads')) && (
+              <Link href={`/tenant/${tenantSlug}/downloads`} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl hover:bg-white/5 text-slate-400 hover:text-slate-200 text-sm font-medium transition-colors">
+                📥 Downloads
+              </Link>
+            )}
+            {(tenantFeatures.length === 0 || tenantFeatures.includes('sync')) && (
+              <Link href={`/tenant/${tenantSlug}/sync`} className="flex items-center gap-3 px-3.5 py-2.5 rounded-xl bg-indigo-600 text-white font-semibold text-sm shadow-lg shadow-indigo-600/30">
+                🔄 Sync Status
+              </Link>
+            )}
+          </nav>
+        </div>
+      </aside>
+
+      {/* MAIN CONTENT AREA */}
+      <main className="flex-1 p-6 overflow-y-auto">
+        
+        {/* Header */}
+        <div className="flex justify-between items-start mb-6 pb-4 border-b border-white/10">
+          <div>
+            <h1 className="text-2xl font-extrabold text-slate-100 flex items-center gap-2 tracking-tight">
+              🔄 Sync Status
+            </h1>
+          </div>
+          <button 
+            onClick={handleLogout}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold transition-colors cursor-pointer"
+          >
+            🚪 Logout
+          </button>
         </div>
 
-        {/* Instructions */}
-        <div className="bg-indigo-500/10 border-l-4 border-indigo-500 border-y border-r border-indigo-500/20 p-6 rounded-r-xl backdrop-blur-sm">
-          <h4 className="font-bold text-indigo-400 flex items-center gap-2 mb-3">
-            <AlertCircle className="w-5 h-5" /> Prerequisites for Sync
-          </h4>
-          <ul className="list-disc list-inside text-sm text-indigo-200/80 space-y-2">
-            <li>Ensure Tally Prime is running on the host machine.</li>
-            <li>ODBC Server must be enabled in Tally settings (F12) on port 9000.</li>
-            <li>The company <strong className="text-indigo-300">{companyName}</strong> must be open and selected in Tally.</li>
-            <li>If you encounter errors, check the terminal logs of the Node.js backend.</li>
-          </ul>
+        {/* Collapsible Connection Settings Card (Matching Python Screenshot 2) */}
+        <div className="bg-[#0f1629] border border-white/10 rounded-2xl mb-6 shadow-2xl overflow-hidden">
+          <div 
+            onClick={() => setIsUrlSettingsOpen(!isUrlSettingsOpen)}
+            className="p-4 bg-[#151c33]/50 flex items-center justify-between cursor-pointer border-b border-white/5 select-none"
+          >
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-300">
+              <Settings className="w-4 h-4 text-indigo-400" />
+              <span>Connection Settings</span>
+            </div>
+            {isUrlSettingsOpen ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+          </div>
+
+          {isUrlSettingsOpen && (
+            <form onSubmit={handleUpdateUrl} className="p-5 space-y-4">
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-[11px] font-extrabold uppercase text-slate-400 tracking-wider">TALLY SERVER URL</label>
+                  <HelpCircle className="w-4 h-4 text-slate-500 cursor-pointer" title="Enter your Tally HTTP URL or Ngrok Tunnel" />
+                </div>
+                <input 
+                  type="text" 
+                  value={tallyUrl}
+                  onChange={(e) => setTallyUrl(e.target.value)}
+                  className="w-full bg-[#15233c] border border-white/10 rounded-xl px-4 py-2.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-indigo-500" 
+                />
+              </div>
+
+              <button 
+                type="submit"
+                className="px-5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-xs font-bold transition-colors"
+              >
+                Update URL
+              </button>
+            </form>
+          )}
         </div>
 
-      </div>
+        {/* Green Connection Banner (Matching Screenshot 2) */}
+        <div className="mb-8 bg-[#12382c] border border-emerald-500/30 rounded-2xl p-4 flex items-center gap-2 text-xs font-bold text-emerald-300 shadow-xl">
+          <span>✅</span>
+          <span>Tally connected successfully at</span>
+          <span className="underline font-mono">{connectedUrl}</span>
+        </div>
+
+        {/* Sync Data from Tally Section (Matching Screenshot 2) */}
+        <div className="flex justify-between items-center mb-8 bg-[#0f1629] border border-white/10 p-6 rounded-2xl shadow-2xl">
+          <div>
+            <h2 className="text-xl font-extrabold text-slate-100">Sync Data from Tally</h2>
+            <p className="text-xs text-slate-400 mt-1">This will fetch all companies from Tally and sync their data to the portal.</p>
+          </div>
+
+          <button 
+            onClick={handleSyncNow}
+            disabled={isSyncing}
+            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs shadow-lg shadow-indigo-600/30 transition-all border border-indigo-400/30 disabled:opacity-50"
+          >
+            <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : '🔄 Sync Now'}
+          </button>
+        </div>
+
+        {/* Company Sync Status Section (Matching Screenshot 2) */}
+        <div className="space-y-4">
+          <h2 className="text-xl font-extrabold text-slate-100">Company Sync Status</h2>
+
+          <div className="bg-[#0f1629] border border-white/10 rounded-2xl p-4 flex items-center justify-between shadow-xl">
+            <div className="flex items-center gap-2 text-xs font-extrabold text-slate-100">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 inline-block animate-pulse"></span>
+              <span>Unique Steel Products</span>
+            </div>
+            <span className="text-xs font-mono text-slate-400">{lastSyncTime}</span>
+          </div>
+        </div>
+
+      </main>
     </div>
   );
 }

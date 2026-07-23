@@ -15,4 +15,4 @@ const bsDataSchema = new mongoose.Schema({
 bsDataSchema.index({ company: 1, ledger_name: 1, year: 1, month: 1 }, { unique: true });
 bsDataSchema.index({ company: 1, year: 1, month: 1 });
 
-module.exports = mongoose.model('BSData', bsDataSchema);
+module.exports = mongoose.model('BSData', bsDataSchema, 'b_s_data');

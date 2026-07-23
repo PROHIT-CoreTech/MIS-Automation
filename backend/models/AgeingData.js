@@ -12,6 +12,6 @@ const ageingDataSchema = new mongoose.Schema({
   synced_at: { type: String }
 });
 
-ageingDataSchema.index({ company: 1, party_type: 1 });
+ageingDataSchema.index({ company: 1, party_type: 1 }, { collection: 'ageing_data' });
 
-module.exports = mongoose.model('AgeingData', ageingDataSchema);
+module.exports = mongoose.model('AgeingData', ageingDataSchema, 'ageing_data');

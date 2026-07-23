@@ -12,13 +12,14 @@ router.post('/login', async (req, res) => {
     const { username, password } = req.body;
     
     // Find user
-    const user = await User.findOne({ username }).populate('tenant_id');
+    const user = await User.findOne({ username }).populate('tenant');
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Since Python used passlib, we need to handle verifying the hash.
-    // For now, assuming standard bcrypt format from Python's passlib.bcrypt
+    const tenantObj = user.tenant || user.tenant_id;
+
+    // Verify password hash
     const isMatch = await bcrypt.compare(password, user.password_hash);
     if (!isMatch) {
       return res.status(401).json({ error: 'Invalid credentials' });
@@ -29,8 +30,8 @@ router.post('/login', async (req, res) => {
       userId: user._id,
       username: user.username,
       role: user.role,
-      tenantId: user.tenant_id ? user.tenant_id._id : null,
-      tenantSlug: user.tenant_id ? user.tenant_id.slug : null
+      tenantId: tenantObj ? tenantObj._id : null,
+      tenantSlug: tenantObj ? tenantObj.slug : null
     };
 
     // Sign Token
@@ -43,7 +44,7 @@ router.post('/login', async (req, res) => {
         username: user.username,
         full_name: user.full_name,
         role: user.role,
-        tenant: user.tenant_id ? { name: user.tenant_id.name, slug: user.tenant_id.slug } : null
+        tenant: tenantObj ? { name: tenantObj.name, slug: tenantObj.slug } : null
       }
     });
 

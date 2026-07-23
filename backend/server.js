@@ -1,5 +1,5 @@
 const dns = require('dns');
-try { dns.setServers(['8.8.8.8', '1.1.1.1']); } catch (e) {}
+try { dns.setDefaultResultOrder('ipv4first'); } catch (e) {}
 require('dotenv').config({ path: '../.env' }); // Load .env from root
 const express = require('express');
 const mongoose = require('mongoose');
@@ -11,12 +11,49 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// Global API Request & Response Debug Logger Middleware
+app.use((req, res, next) => {
+  const startTime = Date.now();
+  const { method, originalUrl, query, body } = req;
+
+  console.log(`\n==================================================`);
+  console.log(`📥 [REQUEST] ${method} ${originalUrl}`);
+  if (query && Object.keys(query).length > 0) {
+    console.log(`   Query Params :`, JSON.stringify(query, null, 2));
+  }
+  if (body && Object.keys(body).length > 0) {
+    const safeBody = { ...body };
+    if (safeBody.password) safeBody.password = '***HIDDEN***';
+    console.log(`   Request Body :`, JSON.stringify(safeBody, null, 2));
+  }
+
+  // Intercept res.json to log output payload and duration
+  const originalJson = res.json;
+  res.json = function (data) {
+    const duration = Date.now() - startTime;
+    console.log(`📤 [RESPONSE] ${method} ${originalUrl} | Status: ${res.statusCode} (${duration}ms)`);
+    console.log(`   Response Body:`, JSON.stringify(data, null, 2));
+    console.log(`==================================================\n`);
+    return originalJson.call(this, data);
+  };
+
+  next();
+});
+
 // Database Connection
 const MONGO_URI = process.env.MONGO_URI_DEVELOPMENT;
 
-mongoose.connect(MONGO_URI)
-  .then(() => console.log('✅ Connected to MongoDB Atlas'))
-  .catch((err) => console.error('❌ MongoDB Connection Error:', err));
+const connectWithRetry = () => {
+  mongoose.connect(MONGO_URI)
+    .then(() => console.log('✅ Connected to MongoDB Atlas'))
+    .catch((err) => {
+      console.error('❌ MongoDB Connection Error:', err.message || err);
+      console.log('🔄 Retrying MongoDB connection in 10 seconds...');
+      setTimeout(connectWithRetry, 10000);
+    });
+};
+
+connectWithRetry();
 
 // Routes
 const authRoutes = require('./routes/auth').router;
@@ -33,7 +70,7 @@ app.get('/api/health', (req, res) => {
 });
 
 // Start Server
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5001;
 app.listen(PORT, () => {
-  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`🚀 Express server running on http://localhost:${PORT}`);
 });
