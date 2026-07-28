@@ -148,7 +148,8 @@ def _calc(rows):
 
     # COGS: group total preferred (Mode A), fallback to individual groups
     if cos_net_found:
-        cogs = abs(cos_net)
+        # Use signed net COGS from Tally group-total (can be +/-).
+        cogs = cos_net
     else:
         cogs = b['opening'] + b['purchases'] + b['direct_exp'] - b['closing']
 

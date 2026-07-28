@@ -78,7 +78,7 @@ def _fmt_cr(v: float) -> str:
 
 # ── EXCEL EXPORT ───────────────────────────────────────────
 def _generate_excel(company_name: str, from_lbl: str, to_lbl: str,
-                    sections: dict, mo_labels: list) -> bytes:
+                    sections: dict, mo_labels: list, group_totals: dict = None) -> bytes:
     """Generate a formatted .xlsx P&L report using openpyxl."""
     from openpyxl import Workbook
     from openpyxl.styles import (Font, PatternFill, Alignment,
@@ -197,7 +197,15 @@ def _generate_excel(company_name: str, from_lbl: str, to_lbl: str,
                     - sec_vals('opening')[i] - sec_vals('purchases')[i]
                     - sec_vals('direct_exp')[i] + sec_vals('closing')[i]), 4)
              for i in range(len(mo_labels))]
-    gp_mo.append(round(sum(gp_mo), 4))
+    # Annual GP: prefer signed group-total COGS if available for correct net arithmetic
+    if group_totals and 'cogs' in group_totals:
+        annual_rev = abs(sum(group_totals.get('revenue', {}).values())) / 1e7 if group_totals.get('revenue') else sum(sec_vals('revenue'))
+        annual_di  = abs(sum(group_totals.get('dir_inc_group', {}).values())) / 1e7 if group_totals.get('dir_inc_group') else sum(sec_vals('dir_inc'))
+        annual_cogs= sum(group_totals.get('cogs', {}).values()) / 1e7
+        annual_gp  = (annual_rev + annual_di - annual_cogs)
+        gp_mo.append(round(annual_gp, 4))
+    else:
+        gp_mo.append(round(sum(gp_mo), 4))
     write_row('GROSS PROFIT (c/o)', gp_mo, GP_FONT, GP_FILL)
 
     add_section('INDIRECT INCOMES', 'ind_inc')
@@ -209,7 +217,18 @@ def _generate_excel(company_name: str, from_lbl: str, to_lbl: str,
                     - sec_vals('direct_exp')[i] + sec_vals('closing')[i]
                     + sec_vals('ind_inc')[i] - sec_vals('overhead')[i]), 4)
              for i in range(len(mo_labels))]
-    np_mo.append(round(sum(np_mo), 4))
+    # Annual NP uses the annual GP computed above (which prefers signed COGS)
+    if group_totals and 'cogs' in group_totals:
+        annual_ii_total = sum(sec_vals('ind_inc'))
+        if group_totals.get('overhead') or group_totals.get('overhead_sal'):
+            annual_oh = (abs(sum(group_totals.get('overhead', {}).values())) +
+                         abs(sum(group_totals.get('overhead_sal', {}).values()))) / 1e7
+        else:
+            annual_oh = sum(sec_vals('overhead'))
+        annual_np = annual_gp + annual_ii_total - annual_oh
+        np_mo.append(round(annual_np, 4))
+    else:
+        np_mo.append(round(sum(np_mo), 4))
     write_row('NET PROFIT (Nett)', np_mo, NP_FONT, NP_FILL)
 
     # Note
@@ -440,7 +459,7 @@ def show_downloads(user):
 
     # ── Build data ─────────────────────────────────────────
     with st.spinner("Preparing report data..."):
-        rows, mo_labels, _ = _load_pl_data(
+        rows, mo_labels, _, group_totals = _load_pl_data(
             company_id, from_yr, from_mo, to_yr, to_mo)
         sections = _build_sections(rows, mo_labels)
 
@@ -462,7 +481,7 @@ def show_downloads(user):
                 with st.spinner("Building Excel..."):
                     try:
                         xls_bytes = _generate_excel(
-                            company_name, from_lbl, to_lbl, sections, mo_labels)
+                            company_name, from_lbl, to_lbl, sections, mo_labels, group_totals)
                         fname = f"MIS_PL_{company_name}_{from_lbl}_to_{to_lbl}.xlsx"
                         for ch in '\\/:*?"<>| ':
                             fname = fname.replace(ch, '_')

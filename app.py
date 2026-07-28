@@ -16,7 +16,7 @@ All UI logic is delegated to dedicated modules:
 import logging
 import streamlit as st
 
-from core.db    import init_db
+import core.db as db
 from core.auth  import create_admin_if_not_exists
 from core.theme import inject_theme
 
@@ -41,12 +41,19 @@ inject_theme()
 # ── ONE-TIME INITIALISATION ────────────────────────────────────
 @st.cache_resource
 def _initialize():
-    init_db()
+    if not db.init_db():
+        return False
     create_admin_if_not_exists()
     return True
 
 
-_initialize()
+initialized = _initialize()
+if not initialized:
+    st.error("⚠️ MongoDB connection failed. The app cannot continue until the database is reachable.")
+    if db.DB_ERROR:
+        st.caption("Details:")
+        st.code(db.DB_ERROR, language="text")
+    st.stop()
 
 
 # ── SESSION STATE BOOTSTRAP ────────────────────────────────────

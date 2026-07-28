@@ -208,13 +208,17 @@ def show_reports(user):
                     monthly[lbl]['dir_inc']
                 )
             if 'cogs' in group_totals:
-                monthly[lbl]['cogs'] = abs(group_totals['cogs'].get(lbl, 0))
+                # Use signed net COGS from Tally group-total (can be +/-).
+                # Arithmetic should use the net value; display rows use abs().
+                monthly[lbl]['cogs'] = group_totals['cogs'].get(lbl, 0)
             else:
                 monthly[lbl]['cogs'] = (monthly[lbl]['opening'] +
                                         monthly[lbl]['purchases'] +
                                         monthly[lbl]['direct_exp'] -
                                         monthly[lbl]['closing'])
-            if 'overhead' in group_totals or 'overhead_sal' in group_totals:
+            if sections.get('overhead'):
+                monthly[lbl]['overhead'] = sum(abs(v.get(lbl, 0)) for v in sections['overhead'].values())
+            elif 'overhead' in group_totals or 'overhead_sal' in group_totals:
                 ie_val  = abs(group_totals.get('overhead', {}).get(lbl, 0))
                 sal_val = abs(group_totals.get('overhead_sal', {}).get(lbl, 0))
                 monthly[lbl]['overhead'] = ie_val + sal_val
@@ -303,40 +307,75 @@ def show_reports(user):
         # sections already built above (outside tabs)
 
         def section_total(sec_key, lbl):
-            """Use group totals where available. Returns signed monthly values."""
-            if sec_key == 'revenue' and 'revenue' in group_totals:
-                return abs(group_totals['revenue'].get(lbl, 0))
+            """Return the signed monthly total for a section, using detailed rows first."""
+            if sec_key == 'revenue':
+                revenue_items = sum(abs(v.get(lbl, 0)) for v in sections.get('revenue', {}).values())
+                if revenue_items:
+                    return revenue_items
+                return abs(group_totals.get('revenue', {}).get(lbl, 0))
+
             if sec_key == 'dir_inc':
-                gt    = abs(group_totals.get('dir_inc_group', {}).get(lbl, 0))
-                items = sum(abs(v.get(lbl, 0)) for v in sections['dir_inc'].values())
-                return max(gt, items)
+                items = sum(abs(v.get(lbl, 0)) for v in sections.get('dir_inc', {}).values())
+                if items:
+                    return items
+                return abs(group_totals.get('dir_inc_group', {}).get(lbl, 0))
+
             if sec_key == 'cogs':
-                if 'cogs' in group_totals:
-                    # Return signed net — caller uses abs() for display
-                    return group_totals['cogs'].get(lbl, 0)
-                opening  = sum(abs(v.get(lbl,0)) for v in sections['opening'].values())
-                purchase = sum(abs(v.get(lbl,0)) for v in sections['purchases'].values())
-                direxp   = sum(abs(v.get(lbl,0)) for v in sections['direct_exp'].values())
-                closing  = sum(abs(v.get(lbl,0)) for v in sections['closing'].values())
-                return opening + purchase + direxp - closing
-            if sec_key == 'overhead' and ('overhead' in group_totals or 'overhead_sal' in group_totals):
-                ie_val  = abs(group_totals.get('overhead', {}).get(lbl, 0))
-                sal_val = abs(group_totals.get('overhead_sal', {}).get(lbl, 0))
-                return ie_val + sal_val
-            return sum(abs(v.get(lbl, 0)) for v in sections[sec_key].values())
+                opening  = sum(abs(v.get(lbl,0)) for v in sections.get('opening', {}).values())
+                purchase = sum(abs(v.get(lbl,0)) for v in sections.get('purchases', {}).values())
+                direxp   = sum(abs(v.get(lbl,0)) for v in sections.get('direct_exp', {}).values())
+                closing  = sum(abs(v.get(lbl,0)) for v in sections.get('closing', {}).values())
+                if opening or purchase or direxp or closing:
+                    return opening + purchase + direxp - closing
+                # Return signed net COGS (may be negative when closing>opening)
+                return group_totals.get('cogs', {}).get(lbl, 0)
+
+            if sec_key == 'overhead':
+                if sections.get('overhead'):
+                    return sum(abs(v.get(lbl, 0)) for v in sections['overhead'].values())
+                if sections.get('ind_inc') and False:
+                    pass
+                if ('overhead' in group_totals or 'overhead_sal' in group_totals):
+                    ie_val  = abs(group_totals.get('overhead', {}).get(lbl, 0))
+                    sal_val = abs(group_totals.get('overhead_sal', {}).get(lbl, 0))
+                    return ie_val + sal_val
+                return 0
+
+            return sum(abs(v.get(lbl, 0)) for v in sections.get(sec_key, {}).values())
 
         def annual_total(sec_key):
-            """Annual total using abs(sum(net)) — correct for sign-flip months."""
+            """Annual total using detailed rows first, with group-total fallback."""
             if sec_key == 'revenue':
+                revenue_items = sum(
+                    sum(abs(v.get(lbl, 0)) for lbl in mo_labels)
+                    for v in sections.get('revenue', {}).values()
+                )
+                if revenue_items:
+                    return revenue_items
                 return abs(sum(group_totals.get('revenue', {}).values()))
+
             if sec_key == 'dir_inc':
+                dir_inc_items = sum(
+                    sum(abs(v.get(lbl, 0)) for lbl in mo_labels)
+                    for v in sections.get('dir_inc', {}).values()
+                )
+                if dir_inc_items:
+                    return dir_inc_items
                 return abs(sum(group_totals.get('dir_inc_group', {}).values()))
+
             if sec_key == 'cogs':
-                return abs(sum(group_totals.get('cogs', {}).values()))
+                has_detail = any(sections.get(k) for k in ('opening', 'purchases', 'direct_exp', 'closing'))
+                if has_detail:
+                    return sum(section_total('cogs', l) for l in mo_labels)
+                # Return signed annual net COGS (sum of monthly nets)
+                return sum(group_totals.get('cogs', {}).values())
+
             if sec_key == 'overhead':
+                if sections.get('overhead'):
+                    return sum(section_total('overhead', l) for l in mo_labels)
                 return (abs(sum(group_totals.get('overhead', {}).values())) +
                         abs(sum(group_totals.get('overhead_sal', {}).values())))
-            # Default: sum of monthly values
+
             return sum(section_total(sec_key, l) for l in mo_labels)
 
         # ── BUILD TABLE ROWS ──────────────────────────────
@@ -439,9 +478,10 @@ def show_reports(user):
         table_rows.append({'Particulars': '', '_type': 'spacer'})
         grow = {'Particulars': '💹 GROSS PROFIT', '_type': 'gp'}
         for lbl in mo_labels:
+            # Use signed COGS (net) for arithmetic — may be negative.
             g = (section_total('revenue', lbl) +
                  section_total('dir_inc', lbl) -
-                 abs(section_total('cogs', lbl)))
+                 section_total('cogs', lbl))
             grow[lbl] = fmt_cr(g)
         gp_annual = (annual_total('revenue') + annual_total('dir_inc') - annual_total('cogs'))
         grow['Total'] = fmt_cr(gp_annual)
@@ -455,9 +495,10 @@ def show_reports(user):
         table_rows.append({'Particulars': '', '_type': 'spacer'})
         nrow = {'Particulars': '🏆 NET PROFIT', '_type': 'np'}
         for lbl in mo_labels:
+            # Net Profit uses signed COGS as part of arithmetic
             n = (section_total('revenue', lbl) +
                  section_total('dir_inc', lbl) -
-                 abs(section_total('cogs', lbl)) +
+                 section_total('cogs', lbl) +
                  section_total('ind_inc', lbl) -
                  section_total('overhead', lbl))
             nrow[lbl] = fmt_cr(n)

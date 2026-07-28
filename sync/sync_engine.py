@@ -16,13 +16,33 @@ from sync.masters_loader import get_mis_group
 
 log = logging.getLogger(__name__)
 
-# ── FIXED XML PARSER ───────────────────────────────────────
+# ── XML PARSER ───────────────────────────────────────
 def parse_pl_xml(xml_text: str) -> list:
     """
     Parse Tally P&L XML.
     Tracks current_group from DSPACCNAME headers.
     Stores individual LEDGER rows (inside BSNAME blocks).
-    Handles COGS breakdown: Purchase Accounts, Opening Stock, Closing Stock.
+
+    IMPORTANT — this used to be defined TWICE in this file. Python
+    silently keeps only the LAST definition when a function name is
+    redefined, so the second (broken) copy was the one actually
+    running in production, even though the first (correct) copy still
+    existed higher up as dead code. The second copy dropped EVERY row
+    where ledger_name == tally_group unconditionally — with no
+    exemption for Tally's Trading Account rows (Opening Stock,
+    Closing Stock, Purchase Accounts, Direct Expenses) which
+    legitimately have ledger_name == tally_group for the client
+    companies in this dataset. That silently zeroed out COGS for
+    every company synced with this build, causing Gross Profit to
+    render at ~98% of Revenue (COGS ≈ 0) on the Dashboard.
+
+    Fix: keep exactly ONE parser (this one), and use the already
+    -imported COGS_GROUPS constant (core/constants.py) — instead of a
+    narrower hardcoded tuple — as the exemption set, since it already
+    covers every Trading Account group name that legitimately has
+    ledger_name == tally_group: opening stock, purchase accounts,
+    add: purchase accounts, less: closing stock, closing stock,
+    direct expenses.
     """
     rows          = []
     lines         = xml_text.split('\n')
@@ -70,10 +90,15 @@ def parse_pl_xml(xml_text: str) -> list:
                 i += 1
                 continue
 
-            # Skip if ledger == group (group total row) EXCEPT for
-            # Opening Stock and Closing Stock which are both group and ledger
-            if lg == cg and lg not in ('opening stock', 'less: closing stock',
-                                        'closing stock'):
+            # Skip if ledger == group (group-total row) EXCEPT for the
+            # Trading Account groups where ledger == group is normal
+            # and legitimate (Opening Stock, Closing Stock, Purchase
+            # Accounts, Direct Expenses etc — see COGS_GROUPS).
+            if lg == cg and lg not in COGS_GROUPS:
+                log.debug("[Parser] Dropping self-referencing row: "
+                          "ledger=%r group=%r (not in COGS_GROUPS — if this "
+                          "SHOULD be kept, add it to COGS_GROUPS in "
+                          "core/constants.py)", ledger, current_group)
                 i += 1
                 continue
 
@@ -168,10 +193,7 @@ def _lookback_start(now: datetime) -> datetime:
     just-ended FY for months AFTER the new FY has already started
     (right through audit/filing season) — a "current FY only" window
     stops reaching those entries the moment the calendar rolls into
-    the new FY. (This was caught in production: an entry posted into
-    Mar-2026 was missed by re-sync once `now` moved into Jul-2026,
-    because that's already inside FY 2026-27 and the old window no
-    longer looked back into FY 2025-26 at all.)
+    the new FY.
     """
     current_fy_start_year  = now.year if now.month >= 4 else now.year - 1
     previous_fy_start_year = current_fy_start_year - 1
@@ -406,71 +428,6 @@ def _sync_ageing_company(company_id: str, company_name: str, tally_url: str | No
 
     return total
 
-
-# ── FIXED XML PARSER ───────────────────────────────────────
-def parse_pl_xml(xml_text: str) -> list:
-    """
-    Parse Tally P&L XML.
-    KEY FIX: Track parent group properly.
-    Store INDIVIDUAL LEDGER rows only.
-    DSPDISPNAME under BSNAME = individual ledger
-    DSPDISPNAME directly = group header (track as parent, don't store)
-    """
-    rows          = []
-    lines         = xml_text.split('\n')
-    current_group = ''
-    i             = 0
-
-    while i < len(lines):
-        line = lines[i].strip()
-
-        # Group header row (direct DSPACCNAME, not inside BSNAME)
-        if '<DSPACCNAME>' in line and '<BSNAME>' not in (
-            lines[i-1].strip() if i > 0 else ''):
-            for j in range(i, min(i+4, len(lines))):
-                m = re.search(r'<DSPDISPNAME>(.*?)</DSPDISPNAME>', lines[j])
-                if m:
-                    current_group = m.group(1).strip()
-                    break
-
-        # Individual ledger row (inside BSNAME block)
-        if '<BSNAME>' in line:
-            ledger = ''
-            value  = 0.0
-
-            # Get ledger name
-            for j in range(i, min(i+6, len(lines))):
-                m = re.search(r'<DSPDISPNAME>(.*?)</DSPDISPNAME>', lines[j])
-                if m:
-                    ledger = m.group(1).strip()
-                    break
-
-            # Get value (BSSUBAMT = individual amount)
-            for j in range(i, min(i+8, len(lines))):
-                m = re.search(r'<BSSUBAMT>(.*?)</BSSUBAMT>', lines[j])
-                if m and m.group(1).strip():
-                    value = _sf(m.group(1))
-                    break
-
-            # Skip if ledger name == group name (it's a sub-group header, not ledger)
-            if ledger and ledger != current_group:
-                # Skip known section headers
-                if ledger.lower().strip() not in SKIP_TALLY_GROUPS:
-                    rows.append({
-                        'ledger':      ledger,
-                        'tally_group': current_group,
-                        'debit':       abs(value) if value < 0 else 0,
-                        'credit':      abs(value) if value > 0 else 0,
-                        'net':         value
-                    })
-
-        i += 1
-
-    # Deduplicate by ledger name (keep last occurrence)
-    seen = {}
-    for r in rows:
-        seen[r['ledger']] = r
-    return list(seen.values())
 
 def parse_bs_xml(xml_text: str) -> list:
     """Parse Balance Sheet XML — same structure as P&L"""

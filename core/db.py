@@ -8,24 +8,40 @@ from core.models import Tenant, Company, User
 
 log = logging.getLogger(__name__)
 
-def init_db() -> None:
+DB_READY = False
+DB_ERROR = None
+
+
+def init_db() -> bool:
     """Connect to MongoDB and ensure default data is present."""
-    log.info(f"Connecting to MongoDB at {MONGO_URI}...")
-    connect(host=MONGO_URI)
-    
-    # Ensure default tenant exists
-    default_tenant = Tenant.objects(slug='default').first()
-    if not default_tenant:
-        default_tenant = Tenant(
-            name='Default Tenant',
-            slug='default',
-            plan_name='Gold',
-            features='["dashboard", "reports", "cash_flow", "downloads", "sync"]',
-            is_active=True
-        ).save()
-        log.info("Created Default Tenant.")
-    
-    log.info("MongoDB initialized successfully")
+    global DB_READY, DB_ERROR
+
+    DB_READY = False
+    DB_ERROR = None
+
+    try:
+        log.info("Connecting to MongoDB at %s...", MONGO_URI)
+        connect(host=MONGO_URI, serverSelectionTimeoutMS=5000)
+
+        # Ensure default tenant exists
+        default_tenant = Tenant.objects(slug='default').first()
+        if not default_tenant:
+            default_tenant = Tenant(
+                name='Default Tenant',
+                slug='default',
+                plan_name='Gold',
+                features='["dashboard", "reports", "cash_flow", "downloads", "sync"]',
+                is_active=True
+            ).save()
+            log.info("Created Default Tenant.")
+
+        DB_READY = True
+        log.info("MongoDB initialized successfully")
+        return True
+    except Exception as exc:
+        DB_ERROR = str(exc)
+        log.exception("MongoDB initialization failed")
+        return False
 
 
 def get_company_ids_for_user(user_id: str, role: str, tenant_id: str | None = None) -> list:
