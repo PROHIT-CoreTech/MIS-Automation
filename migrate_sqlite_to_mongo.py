@@ -20,7 +20,7 @@ try:
     with open('.env', 'r') as f:
         for line in f:
             if line.startswith('MONGO_URI_DEVELOPMENT='):
-                MONGO_URI = line.split('=', 1)[1].strip()
+                MONGO_URI = line.split('=', 1)[1].strip().strip('"').strip("'")
 except FileNotFoundError:
     print(".env file not found")
 

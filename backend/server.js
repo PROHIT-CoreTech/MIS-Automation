@@ -43,9 +43,21 @@ app.use((req, res, next) => {
 });
 
 // Database Connection
-const MONGO_URI = process.env.MONGO_URI_DEVELOPMENT;
+let MONGO_URI = process.env.MONGO_URI_DEVELOPMENT || process.env.MONGO_URI;
+
+if (MONGO_URI) {
+  // Sanitize URI: strip quotes, leading/trailing whitespace, and invisible UTF-8 BOM
+  MONGO_URI = MONGO_URI.trim().replace(/^["']|["']$/g, '').replace(/^\uFEFF/, '').trim();
+}
+
+if (!MONGO_URI) {
+  console.error('\n❌ ERROR: MONGO_URI_DEVELOPMENT or MONGO_URI is missing in your .env file!');
+  console.error('👉 Please make sure your .env file contains:');
+  console.error('   MONGO_URI_DEVELOPMENT=mongodb+srv://<user>:<password>@cluster.mongodb.net/mis_automation?retryWrites=true&w=majority\n');
+}
 
 const connectWithRetry = () => {
+  if (!MONGO_URI) return;
   mongoose.connect(MONGO_URI)
     .then(() => console.log('✅ Connected to MongoDB Atlas'))
     .catch((err) => {
