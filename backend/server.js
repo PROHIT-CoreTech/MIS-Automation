@@ -46,14 +46,19 @@ app.use((req, res, next) => {
 let MONGO_URI = process.env.MONGO_URI_DEVELOPMENT || process.env.MONGO_URI;
 
 if (MONGO_URI) {
-  // Sanitize URI: strip quotes, leading/trailing whitespace, and invisible UTF-8 BOM
-  MONGO_URI = MONGO_URI.trim().replace(/^["']|["']$/g, '').replace(/^\uFEFF/, '').trim();
+  // Bulletproof Windows & dotenvx sanitization:
+  // 1. Remove all quotes, carriage returns, newlines, tabs
+  MONGO_URI = MONGO_URI.replace(/[\r\n"'\t]/g, '').trim();
+  // 2. Strip any leading non-alphabetical characters (BOM, symbols, brackets)
+  MONGO_URI = MONGO_URI.replace(/^[^a-zA-Z]+/, '').trim();
 }
 
 if (!MONGO_URI) {
   console.error('\n❌ ERROR: MONGO_URI_DEVELOPMENT or MONGO_URI is missing in your .env file!');
   console.error('👉 Please make sure your .env file contains:');
   console.error('   MONGO_URI_DEVELOPMENT=mongodb+srv://<user>:<password>@cluster.mongodb.net/mis_automation?retryWrites=true&w=majority\n');
+} else {
+  console.log(`🔌 [DB DEBUG] Cleaned MONGO_URI prefix: "${MONGO_URI.substring(0, 15)}..."`);
 }
 
 const connectWithRetry = () => {
